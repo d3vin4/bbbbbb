@@ -1,5 +1,6 @@
 #import "BQCore.h"
 
+#import <dirent.h>
 #import <dlfcn.h>
 #import <errno.h>
 #import <fcntl.h>
