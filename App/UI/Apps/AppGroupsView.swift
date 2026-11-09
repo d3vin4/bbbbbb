@@ -103,6 +103,11 @@ struct AppGroupDetailView: View {
             }
 
             Section("Hành động") {
+                NavigationLink {
+                    FileBrowserView(root: group)
+                } label: {
+                    Label("Mở Container", systemImage: "folder")
+                }
                 Button {
                     Task { await activate() }
                 } label: {

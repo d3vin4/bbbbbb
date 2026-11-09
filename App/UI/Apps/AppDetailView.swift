@@ -45,6 +45,15 @@ struct AppDetailView: View {
 
             Section("Hành động") {
                 if app.source == .direct {
+                    if let path = app.path {
+                        NavigationLink {
+                            FileBrowserView(
+                                root: ContainerRecord(identifier: app.bundleID, kind: .application, path: path)
+                            )
+                        } label: {
+                            Label("Mở Container", systemImage: "folder")
+                        }
+                    }
                     NavigationLink {
                         CleanTempView(focusBundleID: app.bundleID)
                     } label: {
