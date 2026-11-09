@@ -321,6 +321,19 @@ final class FileBrowserModel: ObservableObject {
         }
     }
 
+    /// Zips multiple entries into `currentPath/<name>.zip`.
+    func zip(_ entries: [FileEntry], named name: String) async {
+        guard !entries.isEmpty else { return }
+        let urls = entries.map { URL(fileURLWithPath: $0.path) }
+        var archiveName = name.trimmingCharacters(in: .whitespaces)
+        if archiveName.isEmpty { archiveName = "Archive" }
+        if !archiveName.lowercased().hasSuffix(".zip") { archiveName += ".zip" }
+        let destination = URL(fileURLWithPath: (currentPath as NSString).appendingPathComponent(archiveName))
+        await run { _ in
+            try ArchiveManager.shared.createArchive(items: urls, destinationURL: destination, keepParent: true)
+        }
+    }
+
     /// Zips the current directory into its parent (<dir>.zip).
     func zipCurrentDirectory() async {
         let directory = URL(fileURLWithPath: currentPath)

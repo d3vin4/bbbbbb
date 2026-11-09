@@ -17,6 +17,9 @@ struct FileBrowserView: View {
     @State private var archiveTarget: FileEntry?
     @State private var viewerTarget: FileEntry?
     @State private var quickLookTarget: FileEntry?
+    @State private var isSelecting = false
+    @State private var selectedPaths: Set<String> = []
+    @ObservedObject private var favorites = FavoritesStore.shared
 
     init(root: ContainerRecord, initialPath: String? = nil) {
         _model = StateObject(wrappedValue: FileBrowserModel(root: root, initialPath: initialPath))
@@ -36,7 +39,7 @@ struct FileBrowserView: View {
             }
 
             ForEach(model.displayedEntries) { entry in
-                if entry.isDirectory {
+                if entry.isDirectory, !isSelecting {
                     NavigationLink {
                         FileBrowserView(root: model.root, initialPath: entry.path)
                     } label: {
@@ -49,7 +52,9 @@ struct FileBrowserView: View {
                     row(entry)
                         .contentShape(Rectangle())
                         .onTapGesture {
-                            if entry.fileExtension == "zip" {
+                            if isSelecting {
+                                toggleSelection(entry)
+                            } else if entry.fileExtension == "zip" {
                                 archiveTarget = entry
                             } else if ViewerKind.hasRichViewer(for: entry) {
                                 viewerTarget = entry
@@ -87,6 +92,9 @@ struct FileBrowserView: View {
         }
         .task {
             await model.reload()
+            if model.currentPath == model.containerRootPath {
+                favorites.recordVisit(location)
+            }
         }
         .alert("Thư mục mới", isPresented: $isCreatingFolder) {
             TextField("Tên thư mục", text: $createName)
@@ -151,12 +159,25 @@ struct FileBrowserView: View {
             QuickLookSheet(url: URL(fileURLWithPath: entry.path))
                 .ignoresSafeArea()
         }
+        .safeAreaInset(edge: .bottom) {
+            if isSelecting {
+                selectionBar
+            }
+        }
     }
 
     // MARK: - Toolbar
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            if isSelecting {
+                Button("Xong") {
+                    isSelecting = false
+                    selectedPaths.removeAll()
+                }
+            }
+        }
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
                 Button {
@@ -211,6 +232,21 @@ struct FileBrowserView: View {
                 Toggle("Hiện phần mở rộng", isOn: $model.showExtensions)
                 Divider()
                 Button {
+                    favorites.toggleFavorite(location)
+                } label: {
+                    Label(
+                        favorites.isFavorite(location) ? "Bỏ khỏi Yêu thích" : "Thêm vào Yêu thích",
+                        systemImage: favorites.isFavorite(location) ? "star.slash" : "star"
+                    )
+                }
+                Button {
+                    selectedPaths.removeAll()
+                    isSelecting = true
+                } label: {
+                    Label("Chọn nhiều", systemImage: "checkmark.circle")
+                }
+                Divider()
+                Button {
                     Task { await model.reload() }
                 } label: {
                     Label("Tải lại", systemImage: "arrow.clockwise")
@@ -225,9 +261,15 @@ struct FileBrowserView: View {
 
     private func row(_ entry: FileEntry) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: iconName(for: entry))
-                .foregroundStyle(entry.isDirectory ? Color.accentColor : Color.secondary)
-                .frame(width: 22)
+            if isSelecting {
+                Image(systemName: selectedPaths.contains(entry.path) ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(selectedPaths.contains(entry.path) ? Color.accentColor : Color.secondary)
+                    .frame(width: 22)
+            } else {
+                Image(systemName: iconName(for: entry))
+                    .foregroundStyle(entry.isDirectory ? Color.accentColor : Color.secondary)
+                    .frame(width: 22)
+            }
             VStack(alignment: .leading, spacing: 1) {
                 Text(displayName(for: entry))
                     .lineLimit(1)
@@ -361,6 +403,81 @@ struct FileBrowserView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Selection & favorites helpers
+
+    private var location: SavedLocation {
+        SavedLocation(
+            kind: model.root.kind.rawValue,
+            identifier: model.root.identifier,
+            path: model.currentPath
+        )
+    }
+
+    private var selectedEntries: [FileEntry] {
+        model.displayedEntries.filter { selectedPaths.contains($0.path) }
+    }
+
+    private func toggleSelection(_ entry: FileEntry) {
+        if selectedPaths.contains(entry.path) {
+            selectedPaths.remove(entry.path)
+        } else {
+            selectedPaths.insert(entry.path)
+        }
+    }
+
+    private var selectionBar: some View {
+        HStack(spacing: 18) {
+            Button {
+                let targets = selectedEntries
+                guard !targets.isEmpty else { return }
+                Task {
+                    await model.delete(targets)
+                    selectedPaths.removeAll()
+                }
+            } label: {
+                Label("Xoá", systemImage: "trash")
+            }
+            .disabled(selectedPaths.isEmpty)
+
+            Button {
+                model.copyToClipboard(selectedEntries, mode: .copy)
+            } label: {
+                Label("Sao chép", systemImage: "doc.on.doc")
+            }
+            .disabled(selectedPaths.isEmpty)
+
+            Button {
+                model.copyToClipboard(selectedEntries, mode: .cut)
+            } label: {
+                Label("Cắt", systemImage: "scissors")
+            }
+            .disabled(selectedPaths.isEmpty)
+
+            Button {
+                Task {
+                    await model.zip(selectedEntries, named: "")
+                    selectedPaths.removeAll()
+                }
+            } label: {
+                Label("Nén", systemImage: "doc.zipper")
+            }
+            .disabled(selectedPaths.isEmpty)
+
+            Spacer()
+
+            Button("Tất cả") {
+                selectedPaths = Set(model.displayedEntries.map(\.path))
+            }
+
+            Text("\(selectedPaths.count)")
+                .font(.footnote.monospaced())
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        .background(.thinMaterial)
     }
 
     // MARK: - Bindings

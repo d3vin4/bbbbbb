@@ -37,6 +37,11 @@ struct AppsView: View {
                     } label: {
                         Label("App Groups", systemImage: "rectangle.3.group")
                     }
+                    NavigationLink {
+                        FavoritesView()
+                    } label: {
+                        Label("Yêu thích & Gần đây", systemImage: "star")
+                    }
                 }
 
                 applicationsSection
