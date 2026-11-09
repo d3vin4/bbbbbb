@@ -69,9 +69,10 @@ final class CleanTempModel: ObservableObject {
             CleanTempEngine.shared.delete(targets)
         }.value
 
-        if let refreshed = try? await Task.detached {
+        let refreshed = try? await Task.detached {
             try CleanTempEngine.shared.scan(report.record)
-        }.value {
+        }.value
+        if let refreshed {
             reports.removeAll { $0.record.identifier == bundleID }
             reports.append(refreshed)
             reports.sort { $0.totalSize > $1.totalSize }
