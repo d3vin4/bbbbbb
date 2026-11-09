@@ -7,6 +7,7 @@ struct SettingsView: View {
 
     @AppStorage(AccessMethod.storageKey) private var accessMethod: AccessMethod = .direct
     @AppStorage("bbbbbb.vpnAutoConnect") private var vpnAutoConnect = true
+    @AppStorage("bbbbbb.files.viewMode") private var filesViewMode = "list"
     @AppStorage(FileBrowserModel.showHiddenKey) private var filesShowHidden = false
     @AppStorage(FileBrowserModel.showExtensionsKey) private var filesShowExtensions = false
     @AppStorage(FileBrowserModel.sortKeyKey) private var filesSortKeyRaw = FileSortKey.name.rawValue
@@ -156,6 +157,10 @@ struct SettingsView: View {
 
     private var filesSection: some View {
         Section("File Manager") {
+            Picker("Kiểu xem", selection: $filesViewMode) {
+                Text("Danh sách").tag("list")
+                Text("Lưới").tag("grid")
+            }
             Toggle("Hiện file ẩn", isOn: $filesShowHidden)
             Toggle("Hiện phần mở rộng", isOn: $filesShowExtensions)
             Picker("Sắp xếp mặc định", selection: $filesSortKeyRaw) {

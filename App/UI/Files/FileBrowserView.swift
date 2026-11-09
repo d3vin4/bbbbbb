@@ -20,12 +20,112 @@ struct FileBrowserView: View {
     @State private var isSelecting = false
     @State private var selectedPaths: Set<String> = []
     @ObservedObject private var favorites = FavoritesStore.shared
+    @AppStorage("bbbbbb.files.viewMode") private var viewModeRaw = "list"
+
+    private var isGridView: Bool { viewModeRaw == "grid" }
 
     init(root: ContainerRecord, initialPath: String? = nil) {
         _model = StateObject(wrappedValue: FileBrowserModel(root: root, initialPath: initialPath))
     }
 
     var body: some View {
+        content
+            .listStyle(.plain)
+            .navigationTitle(model.displayTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .searchable(text: $model.searchText, prompt: "Tìm trong thư mục")
+            .refreshable {
+                await model.reload()
+            }
+            .toolbar {
+                toolbarContent
+            }
+            .task {
+                await model.reload()
+                if model.currentPath == model.containerRootPath {
+                    favorites.recordVisit(location)
+                }
+            }
+            .alert("Thư mục mới", isPresented: $isCreatingFolder) {
+                TextField("Tên thư mục", text: $createName)
+                Button("Huỷ", role: .cancel) { createName = "" }
+                Button("Tạo") {
+                    let name = createName
+                    createName = ""
+                    Task { await model.createFolder(named: name) }
+                }
+            }
+            .alert("Tệp mới", isPresented: $isCreatingFile) {
+                TextField("Tên tệp (kèm phần mở rộng)", text: $createName)
+                Button("Huỷ", role: .cancel) { createName = "" }
+                Button("Tạo") {
+                    let name = createName
+                    createName = ""
+                    Task { await model.createFile(named: name) }
+                }
+            }
+            .alert("Đổi tên", isPresented: renameBinding) {
+                TextField("Tên mới", text: $renameText)
+                Button("Huỷ", role: .cancel) { renameTarget = nil }
+                Button("Đổi tên") {
+                    if let target = renameTarget {
+                        let name = renameText
+                        renameTarget = nil
+                        Task { await model.rename(target, to: name) }
+                    }
+                }
+            }
+            .alert("Xoá \(deleteTargets.count) mục?", isPresented: $isConfirmingDelete) {
+                Button("Huỷ", role: .cancel) { deleteTargets = [] }
+                Button("Xoá", role: .destructive) {
+                    let targets = deleteTargets
+                    deleteTargets = []
+                    Task { await model.delete(targets) }
+                }
+            } message: {
+                Text(deleteTargets.map(\.name).prefix(5).joined(separator: ", "))
+            }
+            .alert("Lỗi", isPresented: errorBinding) {
+                Button("OK", role: .cancel) { model.clearError() }
+            } message: {
+                Text(model.lastError ?? "")
+            }
+            .sheet(isPresented: $isShowingInfo) {
+                infoSheet
+            }
+            .sheet(item: $archiveTarget) { entry in
+                ArchiveSheetView(
+                    archiveEntry: entry,
+                    destinationDirectory: URL(fileURLWithPath: model.currentPath),
+                    onDone: {
+                        Task { await model.reload() }
+                    }
+                )
+            }
+            .sheet(item: $viewerTarget) { entry in
+                FileViewerSheet(entry: entry)
+            }
+            .sheet(item: $quickLookTarget) { entry in
+                QuickLookSheet(url: URL(fileURLWithPath: entry.path))
+                    .ignoresSafeArea()
+            }
+            .safeAreaInset(edge: .bottom) {
+                if isSelecting {
+                    selectionBar
+                }
+            }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if isGridView {
+            gridBody
+        } else {
+            listContent
+        }
+    }
+
+    private var listContent: some View {
         List {
             if case .failed(let message) = model.phase {
                 Section {
@@ -78,90 +178,6 @@ struct FileBrowserView: View {
                             : "Không có kết quả cho “\(model.searchText)”.")
                     )
                 }
-            }
-        }
-        .listStyle(.plain)
-        .navigationTitle(model.displayTitle)
-        .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $model.searchText, prompt: "Tìm trong thư mục")
-        .refreshable {
-            await model.reload()
-        }
-        .toolbar {
-            toolbarContent
-        }
-        .task {
-            await model.reload()
-            if model.currentPath == model.containerRootPath {
-                favorites.recordVisit(location)
-            }
-        }
-        .alert("Thư mục mới", isPresented: $isCreatingFolder) {
-            TextField("Tên thư mục", text: $createName)
-            Button("Huỷ", role: .cancel) { createName = "" }
-            Button("Tạo") {
-                let name = createName
-                createName = ""
-                Task { await model.createFolder(named: name) }
-            }
-        }
-        .alert("Tệp mới", isPresented: $isCreatingFile) {
-            TextField("Tên tệp (kèm phần mở rộng)", text: $createName)
-            Button("Huỷ", role: .cancel) { createName = "" }
-            Button("Tạo") {
-                let name = createName
-                createName = ""
-                Task { await model.createFile(named: name) }
-            }
-        }
-        .alert("Đổi tên", isPresented: renameBinding) {
-            TextField("Tên mới", text: $renameText)
-            Button("Huỷ", role: .cancel) { renameTarget = nil }
-            Button("Đổi tên") {
-                if let target = renameTarget {
-                    let name = renameText
-                    renameTarget = nil
-                    Task { await model.rename(target, to: name) }
-                }
-            }
-        }
-        .alert("Xoá \(deleteTargets.count) mục?", isPresented: $isConfirmingDelete) {
-            Button("Huỷ", role: .cancel) { deleteTargets = [] }
-            Button("Xoá", role: .destructive) {
-                let targets = deleteTargets
-                deleteTargets = []
-                Task { await model.delete(targets) }
-            }
-        } message: {
-            Text(deleteTargets.map(\.name).prefix(5).joined(separator: ", "))
-        }
-        .alert("Lỗi", isPresented: errorBinding) {
-            Button("OK", role: .cancel) { model.clearError() }
-        } message: {
-            Text(model.lastError ?? "")
-        }
-        .sheet(isPresented: $isShowingInfo) {
-            infoSheet
-        }
-        .sheet(item: $archiveTarget) { entry in
-            ArchiveSheetView(
-                archiveEntry: entry,
-                destinationDirectory: URL(fileURLWithPath: model.currentPath),
-                onDone: {
-                    Task { await model.reload() }
-                }
-            )
-        }
-        .sheet(item: $viewerTarget) { entry in
-            FileViewerSheet(entry: entry)
-        }
-        .sheet(item: $quickLookTarget) { entry in
-            QuickLookSheet(url: URL(fileURLWithPath: entry.path))
-                .ignoresSafeArea()
-        }
-        .safeAreaInset(edge: .bottom) {
-            if isSelecting {
-                selectionBar
             }
         }
     }
@@ -228,6 +244,14 @@ struct FileBrowserView: View {
                 } label: {
                     Label("Nén thư mục này thành .zip", systemImage: "doc.zipper")
                 }
+                Button {
+                    viewModeRaw = isGridView ? "list" : "grid"
+                } label: {
+                    Label(
+                        isGridView ? "Xem dạng danh sách" : "Xem dạng lưới",
+                        systemImage: isGridView ? "list.bullet" : "square.grid.2x2"
+                    )
+                }
                 Toggle("Hiện file ẩn", isOn: $model.showHidden)
                 Toggle("Hiện phần mở rộng", isOn: $model.showExtensions)
                 Divider()
@@ -254,6 +278,112 @@ struct FileBrowserView: View {
             } label: {
                 Image(systemName: "ellipsis.circle")
             }
+        }
+    }
+
+    // MARK: - Grid
+
+    private var gridBody: some View {
+        ScrollView {
+            if case .failed(let message) = model.phase {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(message)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                    Button("Thử lại") {
+                        Task { await model.reload() }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding()
+            }
+
+            if model.phase == .ready && model.displayedEntries.isEmpty {
+                ContentUnavailableView(
+                    "Trống",
+                    systemImage: "folder",
+                    description: Text(model.searchText.isEmpty
+                        ? "Không có mục nào trong thư mục."
+                        : "Không có kết quả cho “\(model.searchText)”.")
+                )
+                .padding(.top, 40)
+            }
+
+            LazyVGrid(columns: gridColumns, spacing: 14) {
+                ForEach(model.displayedEntries) { entry in
+                    gridCell(entry)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+        }
+    }
+
+    private var gridColumns: [GridItem] {
+        [GridItem(.adaptive(minimum: 96, maximum: 140), spacing: 14)]
+    }
+
+    @ViewBuilder
+    private func gridCell(_ entry: FileEntry) -> some View {
+        let selected = selectedPaths.contains(entry.path)
+        let content = VStack(spacing: 6) {
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: iconName(for: entry))
+                    .font(.system(size: 38))
+                    .foregroundStyle(entry.isDirectory ? Color.accentColor : Color.secondary)
+                    .frame(height: 48)
+                if isSelecting {
+                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 16))
+                        .foregroundStyle(selected ? Color.accentColor : Color.secondary)
+                }
+            }
+            Text(displayName(for: entry))
+                .font(.caption)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+            if !entry.isDirectory, entry.size > 0 {
+                Text(entry.size.formatted(.byteCount(style: .file)))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(8)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(selected
+                    ? Color.accentColor.opacity(0.15)
+                    : Color(.secondarySystemBackground).opacity(0.6))
+        )
+
+        if entry.isDirectory, !isSelecting {
+            NavigationLink {
+                FileBrowserView(root: model.root, initialPath: entry.path)
+            } label: {
+                content
+            }
+            .buttonStyle(.plain)
+            .contextMenu {
+                contextMenu(for: entry)
+            }
+        } else {
+            content
+                .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .onTapGesture {
+                    if isSelecting {
+                        toggleSelection(entry)
+                    } else if entry.fileExtension == "zip" {
+                        archiveTarget = entry
+                    } else if ViewerKind.hasRichViewer(for: entry) {
+                        viewerTarget = entry
+                    } else {
+                        Task { await showInfo(entry) }
+                    }
+                }
+                .contextMenu {
+                    contextMenu(for: entry)
+                }
         }
     }
 
