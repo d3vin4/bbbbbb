@@ -9,6 +9,8 @@ struct SettingsView: View {
     @AppStorage("bbbbbb.vpnAutoConnect") private var vpnAutoConnect = true
     @State private var probeLines: [String] = []
     @State private var isProbing = false
+    @State private var isBrowsingAirlift = false
+    @State private var airliftApps: [AirliftAppInfo] = []
 
     var body: some View {
         List {
@@ -122,6 +124,27 @@ struct SettingsView: View {
                 } label: {
                     Text("Xoá file pairing")
                 }
+                Button {
+                    Task { await browseAirliftApps() }
+                } label: {
+                    if isBrowsingAirlift {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text("Đang liệt kê qua AirLift…")
+                        }
+                    } else {
+                        Text("Liệt kê ứng dụng qua AirLift")
+                    }
+                }
+                .disabled(isBrowsingAirlift)
+                if !airliftApps.isEmpty {
+                    Text("AirLift: \(airliftApps.count) ứng dụng")
+                    ForEach(airliftApps.prefix(6)) { app in
+                        Text("• \(app.name) — \(app.bundleID)")
+                            .font(.footnote.monospaced())
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
         }
     }
@@ -182,6 +205,19 @@ struct SettingsView: View {
         probeLines = lines
         for line in lines {
             Log.info("[chẩn đoán] \(line)", category: .badquery)
+        }
+    }
+
+    private func browseAirliftApps() async {
+        isBrowsingAirlift = true
+        defer { isBrowsingAirlift = false }
+        do {
+            let apps = try await AirliftServices.shared.browseApplications()
+            airliftApps = apps
+            Log.info("AirLift browse: \(apps.count) ứng dụng", category: .airlift)
+        } catch {
+            airliftApps = []
+            Log.error("AirLift browse lỗi: \(error.localizedDescription)", category: .airlift)
         }
     }
 }

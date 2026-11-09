@@ -20,6 +20,7 @@ targets:
       - path: App
       - path: Shared
       - path: BadQuery
+      - path: AirliftExt
     settings:
       base:
         # Identity required by the MHA-C2 direct container workflow
@@ -29,7 +30,9 @@ targets:
         PRODUCT_NAME: bbbbbb
         INFOPLIST_FILE: App/Info.plist
         SWIFT_OBJC_BRIDGING_HEADER: App/bbbbbb-Bridging-Header.h
-        HEADER_SEARCH_PATHS: $(SRCROOT)/BadQuery
+        HEADER_SEARCH_PATHS:
+          - $(SRCROOT)/BadQuery
+          - $(SRCROOT)/AirliftExt
         CODE_SIGN_ENTITLEMENTS: Entitlements/bbbbbb.entitlements
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
