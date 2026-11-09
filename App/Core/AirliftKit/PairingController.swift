@@ -1,6 +1,8 @@
 import AirliftFFI
 import Foundation
 
+private let pairingAltIRKKey = "bbbbbbPairingHostAltIRK"
+
 /// Drives the RPPairing host: requests Local Network access, keeps the app
 /// alive while the user approves the PIN in Settings, advertises the service
 /// over Bonjour and runs the Airlift pairing host off the main thread.
@@ -27,10 +29,9 @@ final class PairingController: ObservableObject {
     @Published private(set) var pairingStatus = "Chưa pair"
     @Published private(set) var pairingPIN: String?
 
-    private static let altIRKKey = "bbbbbbPairingHostAltIRK"
     nonisolated private static var storedAltIRK: String {
-        get { UserDefaults.standard.string(forKey: altIRKKey) ?? "" }
-        set { UserDefaults.standard.set(newValue, forKey: altIRKKey) }
+        get { UserDefaults.standard.string(forKey: pairingAltIRKKey) ?? "" }
+        set { UserDefaults.standard.set(newValue, forKey: pairingAltIRKKey) }
     }
 
     private var pairContinuation: CheckedContinuation<String, Error>?
@@ -54,19 +55,19 @@ final class PairingController: ObservableObject {
 
     // MARK: - Pairing file
 
-    static func pairingFilePath() -> String {
+    nonisolated static func pairingFilePath() -> String {
         let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         return directory.appendingPathComponent("bbbbbb_pairing.plist").path
     }
 
-    static var pairingFileExists: Bool {
+    nonisolated static var pairingFileExists: Bool {
         let path = pairingFilePath()
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: path),
               let size = attributes[.size] as? Int else { return false }
         return size > 0
     }
 
-    static func deletePairingFile() {
+    nonisolated static func deletePairingFile() {
         try? FileManager.default.removeItem(atPath: pairingFilePath())
         storedAltIRK = ""
     }
