@@ -297,13 +297,18 @@ final class FileBrowserModel: ObservableObject {
         let items = clipboard.entries
 
         await run { _ in
+            let fileManager = FileManager.default
             for entry in items {
                 let destination = (directory as NSString).appendingPathComponent(entry.name)
+                // Replace existing items (file or folder), like a real file manager.
+                if fileManager.fileExists(atPath: destination) {
+                    try fileManager.removeItem(atPath: destination)
+                }
                 switch mode {
                 case .copy:
-                    try FileManager.default.copyItem(atPath: entry.path, toPath: destination)
+                    try fileManager.copyItem(atPath: entry.path, toPath: destination)
                 case .cut:
-                    try FileManager.default.moveItem(atPath: entry.path, toPath: destination)
+                    try fileManager.moveItem(atPath: entry.path, toPath: destination)
                 }
             }
         }

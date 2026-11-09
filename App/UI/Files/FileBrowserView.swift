@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 /// Duyệt file trong container ứng dụng / App Group qua engine Trực tiếp.
 struct FileBrowserView: View {
@@ -19,6 +20,7 @@ struct FileBrowserView: View {
     @State private var quickLookTarget: FileEntry?
     @State private var isSelecting = false
     @State private var selectedPaths: Set<String> = []
+    @State private var isImportingFiles = false
     @ObservedObject private var favorites = FavoritesStore.shared
     @AppStorage("bbbbbb.files.viewMode") private var viewModeRaw = "list"
 
@@ -108,6 +110,13 @@ struct FileBrowserView: View {
             .sheet(item: $quickLookTarget) { entry in
                 QuickLookSheet(url: URL(fileURLWithPath: entry.path))
                     .ignoresSafeArea()
+            }
+            .fileImporter(
+                isPresented: $isImportingFiles,
+                allowedContentTypes: [.data],
+                allowsMultipleSelection: true
+            ) { result in
+                handleImport(result)
             }
             .safeAreaInset(edge: .bottom) {
                 if isSelecting {
@@ -207,6 +216,11 @@ struct FileBrowserView: View {
                     isCreatingFile = true
                 } label: {
                     Label("Tệp mới", systemImage: "doc.badge.plus")
+                }
+                Button {
+                    isImportingFiles = true
+                } label: {
+                    Label("Nhập tệp…", systemImage: "square.and.arrow.down")
                 }
                 Divider()
                 Button {
@@ -532,6 +546,40 @@ struct FileBrowserView: View {
                     }
                 }
             }
+        }
+    }
+
+    // MARK: - Import
+
+    private func handleImport(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard !urls.isEmpty else { return }
+            let directory = model.currentPath
+            Task {
+                do {
+                    try await Task.detached {
+                        let fileManager = FileManager.default
+                        for url in urls {
+                            let accessing = url.startAccessingSecurityScopedResource()
+                            defer {
+                                if accessing { url.stopAccessingSecurityScopedResource() }
+                            }
+                            let destination = (directory as NSString).appendingPathComponent(url.lastPathComponent)
+                            if fileManager.fileExists(atPath: destination) {
+                                try fileManager.removeItem(atPath: destination)
+                            }
+                            try fileManager.copyItem(atPath: url.path, toPath: destination)
+                        }
+                    }.value
+                    await model.reload()
+                    Log.info("FileBrowser: đã nhập \(urls.count) tệp", category: .fileManager)
+                } catch {
+                    Log.error("FileBrowser import: \(error.localizedDescription)", category: .fileManager)
+                }
+            }
+        case .failure(let error):
+            Log.error("FileBrowser import: \(error.localizedDescription)", category: .fileManager)
         }
     }
 
