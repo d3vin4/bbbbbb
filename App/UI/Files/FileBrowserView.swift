@@ -15,6 +15,8 @@ struct FileBrowserView: View {
     @State private var infoText: String?
     @State private var isShowingInfo = false
     @State private var archiveTarget: FileEntry?
+    @State private var viewerTarget: FileEntry?
+    @State private var quickLookTarget: FileEntry?
 
     init(root: ContainerRecord, initialPath: String? = nil) {
         _model = StateObject(wrappedValue: FileBrowserModel(root: root, initialPath: initialPath))
