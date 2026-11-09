@@ -187,6 +187,102 @@ final class AirliftServices {
         Log.info("AirLift: đã gỡ cài đặt \(bundleID)", category: .airlift)
     }
 
+    // MARK: - Install (pre-signed IPA)
+
+    /// Uploads a local IPA into the AFC jail (/PublicStaging) and installs it
+    /// through InstallationProxy. `progress` receives 0…1 from an arbitrary
+    /// thread; callers must marshal UI updates to the main actor.
+    func installIPA(at localURL: URL, progress: @escaping @Sendable (Double) -> Void) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    try Self.installIPASync(localURL: localURL, progress: progress)
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    private static func installIPASync(localURL: URL, progress: @escaping @Sendable (Double) -> Void) throws {
+        guard AirliftEngine.shared.hasPairing else {
+            throw AirliftServicesError.noPairing
+        }
+        guard let fileSize = (try? FileManager.default.attributesOfItem(atPath: localURL.path)[.size] as? UInt64),
+              fileSize > 0 else {
+            throw AirliftServicesError.failed("Không đọc được file IPA")
+        }
+
+        let session = try openSession()
+        defer { session.close() }
+        let ipClient = try session.installationProxy()
+
+        var afcClient: OpaquePointer?
+        try check(
+            afc_client_connect_rsd(session.adapterHandle, session.handshakeHandle, &afcClient),
+            "afc_client_connect_rsd"
+        )
+        guard let afcClient else {
+            throw AirliftServicesError.failed("AFC client rỗng")
+        }
+        defer { afc_client_free(afcClient) }
+
+        if let mkdirError = "/PublicStaging".withCString({ afc_make_directory(afcClient, $0) }) {
+            Log.warning("AirLift: tạo /PublicStaging: \(describe(mkdirError))", category: .airlift)
+        }
+
+        let remotePath = "/PublicStaging/bbbbbb-\(Int(Date().timeIntervalSince1970)).ipa"
+
+        var afcFile: OpaquePointer?
+        try check(
+            remotePath.withCString { afc_file_open(afcClient, $0, 3 /* AfcWrOnly */, &afcFile) },
+            "afc_file_open"
+        )
+        guard let afcFile else {
+            throw AirliftServicesError.failed("AFC file handle rỗng")
+        }
+
+        var uploadFinished = false
+        defer {
+            if !uploadFinished {
+                _ = afc_file_close(afcFile)
+            }
+        }
+
+        let source = try FileHandle(forReadingFrom: localURL)
+        defer { try? source.close() }
+
+        var uploaded: UInt64 = 0
+        while true {
+            let chunk = try source.read(upToCount: 4 * 1024 * 1024) ?? Data()
+            if chunk.isEmpty { break }
+            let status: UnsafeMutablePointer<IdeviceFfiError>? = chunk.withUnsafeBytes { raw in
+                guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return nil }
+                return afc_file_write(afcFile, base, UInt64(chunk.count))
+            }
+            try check(status, "afc_file_write")
+            uploaded += UInt64(chunk.count)
+            progress(min(0.7, 0.7 * (Double(uploaded) / Double(fileSize))))
+        }
+        try check(afc_file_close(afcFile), "afc_file_close")
+        uploadFinished = true
+        Log.info("AirLift: upload IPA xong (\(uploaded)/\(fileSize) bytes) → \(remotePath)", category: .airlift)
+
+        let relay = InstallProgressRelay(handler: progress)
+        let context = Unmanaged.passUnretained(relay).toOpaque()
+        let installStatus = remotePath.withCString { pathC in
+            installation_proxy_install_with_callback(ipClient, pathC, nil, installProgressCallback, context)
+        }
+        try check(installStatus, "installation_proxy_install")
+        progress(1.0)
+        Log.info("AirLift: cài đặt thành công \(localURL.lastPathComponent)", category: .airlift)
+
+        if let cleanupError = remotePath.withCString({ afc_remove_path_and_contents(afcClient, $0) }) {
+            Log.debug("AirLift: dọn staging: \(describe(cleanupError))", category: .airlift)
+        }
+    }
+
     // MARK: - Session (one tunnel, lazily connected services)
 
     private final class TunnelLease {
@@ -214,6 +310,9 @@ final class AirliftServices {
         init(lease: TunnelLease) {
             self.lease = lease
         }
+
+        var adapterHandle: OpaquePointer { lease.adapter }
+        var handshakeHandle: OpaquePointer { lease.handshake }
 
         func installationProxy() throws -> OpaquePointer {
             if let ipClient { return ipClient }
@@ -350,4 +449,25 @@ final class AirliftServices {
         guard let error else { return }
         throw AirliftServicesError.failed("\(label): \(describe(error))")
     }
+}
+
+// MARK: - Install progress C bridge
+
+/// Bridges the install progress C callback back into Swift.
+private final class InstallProgressRelay {
+    let handler: @Sendable (Double) -> Void
+
+    init(handler: @escaping @Sendable (Double) -> Void) {
+        self.handler = handler
+    }
+
+    func report(percent: UInt64) {
+        handler(min(1.0, 0.7 + 0.3 * (Double(percent) / 100.0)))
+    }
+}
+
+private let installProgressCallback: @convention(c) (UInt64, UnsafeMutableRawPointer?) -> Void = { percent, context in
+    guard let context else { return }
+    let relay = Unmanaged<InstallProgressRelay>.fromOpaque(context).takeUnretainedValue()
+    relay.report(percent: percent)
 }

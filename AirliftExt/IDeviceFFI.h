@@ -128,6 +128,17 @@ IdeviceFfiError *installation_proxy_uninstall(
     const char *bundle_id,
     plist_t options);
 
+/// Install progress callback (percent, 0–100). Must be a valid function pointer.
+typedef void (*idv_progress_callback_t)(uint64_t progress, void *context);
+
+/// Installs a package staged in the AFC jail (e.g. "/PublicStaging/app.ipa").
+IdeviceFfiError *installation_proxy_install_with_callback(
+    InstallationProxyClientHandle *client,
+    const char *package_path,
+    plist_t options,
+    idv_progress_callback_t callback,
+    void *context);
+
 void installation_proxy_client_free(InstallationProxyClientHandle *handle);
 
 // ---------------------------------------------------------------------------
@@ -173,6 +184,20 @@ IdeviceFfiError *afc_client_connect_rsd(
     AfcClientHandle **client);
 
 void afc_client_free(AfcClientHandle *handle);
+
+typedef struct AfcFileHandle AfcFileHandle;
+
+/// AFC open modes (AfcRdOnly = 1, AfcRw = 2, AfcWrOnly = 3, AfcWr = 4, …).
+IdeviceFfiError *afc_file_open(
+    AfcClientHandle *client,
+    const char *path,
+    int32_t mode,
+    AfcFileHandle **handle);
+
+IdeviceFfiError *afc_file_write(AfcFileHandle *handle, const uint8_t *data, uint64_t length);
+IdeviceFfiError *afc_file_close(AfcFileHandle *handle);
+IdeviceFfiError *afc_make_directory(AfcClientHandle *client, const char *path);
+IdeviceFfiError *afc_remove_path_and_contents(AfcClientHandle *client, const char *path);
 
 #ifdef __cplusplus
 }

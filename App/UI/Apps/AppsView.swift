@@ -4,6 +4,7 @@ import UIKit
 struct AppsView: View {
     @ObservedObject private var tunnel = TunnelManager.shared
     @StateObject private var catalog = AppCatalog()
+    @State private var isShowingInstallSheet = false
     @AppStorage("bbbbbb.vpnAutoConnect") private var vpnAutoConnect = true
 
     var body: some View {
@@ -59,7 +60,12 @@ struct AppsView: View {
                     }
                     .disabled(catalog.state == .loading)
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button {
+                        isShowingInstallSheet = true
+                    } label: {
+                        Image(systemName: "square.and.arrow.down")
+                    }
                     NavigationLink {
                         SettingsView()
                     } label: {
@@ -73,6 +79,13 @@ struct AppsView: View {
                     await tunnel.connect()
                 }
                 await catalog.reloadIfNeeded()
+            }
+            .sheet(isPresented: $isShowingInstallSheet) {
+                InstallIPAView()
+            }
+            .onChange(of: isShowingInstallSheet) { _, newValue in
+                guard !newValue, case .loaded = catalog.state else { return }
+                Task { await catalog.reload() }
             }
         }
     }
