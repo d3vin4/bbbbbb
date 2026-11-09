@@ -1,7 +1,9 @@
 import SwiftUI
+import UIKit
 
 struct AppsView: View {
     @ObservedObject private var tunnel = TunnelManager.shared
+    @StateObject private var catalog = AppCatalog()
     @AppStorage("bbbbbb.vpnAutoConnect") private var vpnAutoConnect = true
 
     var body: some View {
@@ -26,6 +28,8 @@ struct AppsView: View {
                     }
                 }
 
+                applicationsSection
+
                 Section("Quy trình thiết lập Airlift") {
                     SetupStepRow(
                         number: 1,
@@ -35,25 +39,26 @@ struct AppsView: View {
                     SetupStepRow(
                         number: 2,
                         title: "Pair thiết bị",
-                        detail: "iOS 27: mở màn Pairing để lấy mã PIN 6 số (hiển thị cả trên Live Activity), rồi nhập trong Settings ▸ Privacy & Security ▸ Developer Mode."
+                        detail: "Mở màn Pairing để lấy mã PIN 6 số (hiển thị cả trên Live Activity), rồi nhập trong Settings ▸ Privacy & Security ▸ Developer Mode."
                     )
                     SetupStepRow(
                         number: 3,
                         title: "Duyệt dữ liệu",
-                        detail: "Mở container ứng dụng và App Groups; chọn cơ chế Trực tiếp hoặc AirLift trong Settings."
-                    )
-                }
-
-                Section {
-                    ContentUnavailableView(
-                        "Chưa có dữ liệu ứng dụng",
-                        systemImage: "square.stack.3d.up.slash",
-                        description: Text("Danh sách ứng dụng sẽ xuất hiện khi engine container được bật trên thiết bị đã ký đủ entitlement.")
+                        detail: "Chọn cơ chế Trực tiếp hoặc AirLift trong Settings; sau đó mở container và App Groups."
                     )
                 }
             }
             .navigationTitle("Apps")
+            .searchable(text: $catalog.searchText, prompt: "Tìm ứng dụng")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        Task { await catalog.reload() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .disabled(catalog.state == .loading)
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink {
                         SettingsView()
@@ -67,6 +72,88 @@ struct AppsView: View {
                 if vpnAutoConnect, tunnel.hasConfiguration, tunnel.status == .disconnected {
                     await tunnel.connect()
                 }
+                await catalog.reloadIfNeeded()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var applicationsSection: some View {
+        Section {
+            switch catalog.state {
+            case .idle:
+                ContentUnavailableView {
+                    Label("Chưa tải danh sách ứng dụng", systemImage: "square.stack.3d.up")
+                } description: {
+                    Text("Cơ chế hiện tại: \(AccessMethod.current.title).")
+                } actions: {
+                    Button("Tải danh sách") {
+                        Task { await catalog.reload() }
+                    }
+                }
+            case .loading:
+                HStack(spacing: 10) {
+                    ProgressView()
+                    Text("Đang tải danh sách ứng dụng…")
+                        .foregroundStyle(.secondary)
+                }
+            case .failed(let message):
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Không tải được", systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                    Text(message)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Button("Thử lại") {
+                        Task { await catalog.reload() }
+                    }
+                }
+            case .loaded:
+                ForEach(catalog.filteredApps) { app in
+                    NavigationLink {
+                        AppDetailView(app: app, catalog: catalog)
+                    } label: {
+                        AppRow(app: app, icon: catalog.icons[app.bundleID])
+                    }
+                }
+            }
+        } header: {
+            HStack {
+                Text("Ứng dụng")
+                Spacer()
+                if case .loaded = catalog.state {
+                    Text("\(catalog.filteredApps.count)")
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+}
+
+private struct AppRow: View {
+    let app: CatalogApp
+    let icon: UIImage?
+
+    var body: some View {
+        HStack(spacing: 12) {
+            if let icon {
+                Image(uiImage: icon)
+                    .resizable()
+                    .frame(width: 40, height: 40)
+                    .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+            } else {
+                Image(systemName: "app.fill")
+                    .font(.system(size: 32))
+                    .frame(width: 40, height: 40)
+                    .foregroundStyle(.secondary)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(app.name)
+                    .lineLimit(1)
+                Text(app.bundleID)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
         }
     }

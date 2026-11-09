@@ -30,6 +30,15 @@ typedef struct IdeviceFfiError {
 /// Frees an error returned by any function below (NULL is a no-op).
 void idevice_error_free(IdeviceFfiError *err);
 
+/// Frees data buffers allocated by this library (icons, AFC reads, …).
+void idevice_data_free(uint8_t *data, uint64_t len);
+
+/// Frees an array of plist nodes allocated by this library (frees each node).
+void idevice_plist_array_free(plist_t *plists, uint64_t len);
+
+/// Frees strings allocated by this library.
+void idevice_string_free(char *string);
+
 // ---------------------------------------------------------------------------
 // Opaque handles
 // ---------------------------------------------------------------------------
@@ -112,6 +121,12 @@ IdeviceFfiError *installation_proxy_browse(
     plist_t options,
     void **out_result,
     uint64_t *out_result_len);
+
+/// Uninstalls the application with the given bundle identifier.
+IdeviceFfiError *installation_proxy_uninstall(
+    InstallationProxyClientHandle *client,
+    const char *bundle_id,
+    plist_t options);
 
 void installation_proxy_client_free(InstallationProxyClientHandle *handle);
 

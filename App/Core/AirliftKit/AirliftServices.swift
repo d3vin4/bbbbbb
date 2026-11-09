@@ -44,8 +44,9 @@ enum AirliftServicesError: LocalizedError {
 }
 
 /// Calls the idevice-ffi surface bundled inside AirliftFFI: tunnel + RSD
-/// services (InstallationProxy first). The dial flow (RemoteXPC on
-/// 10.7.0.1:49152, then raw RPPairing) follows AirCard-iOS / idevice (MIT).
+/// services (InstallationProxy, SpringBoardServices). The dial flow
+/// (RemoteXPC on 10.7.0.1:49152, then raw RPPairing fallback) follows
+/// AirCard-iOS / idevice (MIT).
 final class AirliftServices {
     static let shared = AirliftServices()
 
@@ -75,18 +76,9 @@ final class AirliftServices {
             throw AirliftServicesError.noPairing
         }
 
-        let tunnel = try openTunnel()
-        defer { tunnel.close() }
-
-        var client: OpaquePointer?
-        try check(
-            installation_proxy_connect_rsd(tunnel.adapter, tunnel.handshake, &client),
-            "installation_proxy_connect_rsd"
-        )
-        guard let client else {
-            throw AirliftServicesError.failed("InstallationProxy client rỗng")
-        }
-        defer { installation_proxy_client_free(client) }
+        let session = try openSession()
+        defer { session.close() }
+        let client = try session.installationProxy()
 
         var rawArrayPointer: UnsafeMutableRawPointer?
         var count: UInt64 = 0
@@ -95,8 +87,15 @@ final class AirliftServices {
             "installation_proxy_browse"
         )
         guard let rawArrayPointer else { return [] }
-        let nodes = rawArrayPointer.assumingMemoryBound(to: UnsafeMutableRawPointer?.self)
+        defer {
+            // Frees each plist node in the array.
+            idevice_plist_array_free(
+                rawArrayPointer.assumingMemoryBound(to: UnsafeMutableRawPointer?.self),
+                count
+            )
+        }
 
+        let nodes = rawArrayPointer.assumingMemoryBound(to: UnsafeMutableRawPointer?.self)
         var apps: [AirliftAppInfo] = []
         apps.reserveCapacity(Int(count))
         for index in 0..<Int(count) {
@@ -105,14 +104,90 @@ final class AirliftServices {
                let app = AirliftAppInfo(dictionary: dictionary) {
                 apps.append(app)
             }
-            plist_free(node)
         }
 
         Log.info("AirLift: InstallationProxy trả về \(apps.count) ứng dụng", category: .airlift)
         return apps.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
-    // MARK: - Tunnel
+    // MARK: - Icons
+
+    /// Fetches app icons (PNG data) through SpringBoardServices. Individual
+    /// failures are skipped; the whole batch shares one tunnel.
+    func fetchIcons(bundleIDs: [String]) async -> [String: Data] {
+        await withCheckedContinuation { (continuation: CheckedContinuation<[String: Data], Never>) in
+            DispatchQueue.global(qos: .utility).async {
+                continuation.resume(returning: Self.fetchIconsSync(bundleIDs: bundleIDs))
+            }
+        }
+    }
+
+    private static func fetchIconsSync(bundleIDs: [String]) -> [String: Data] {
+        guard AirliftEngine.shared.hasPairing, !bundleIDs.isEmpty else { return [:] }
+
+        var icons: [String: Data] = [:]
+        var failures = 0
+        do {
+            let session = try openSession()
+            defer { session.close() }
+            let client = try session.springboard()
+
+            for bundleID in bundleIDs {
+                var dataPointer: UnsafeMutableRawPointer?
+                var length: UInt64 = 0
+                let status = bundleID.withCString { bundleC in
+                    springboard_services_get_icon(client, bundleC, &dataPointer, &length)
+                }
+                if let status {
+                    if failures < 3 {
+                        Log.warning("AirLift icon \(bundleID): \(describe(status))", category: .airlift)
+                    }
+                    failures += 1
+                    continue
+                }
+                if let dataPointer, length > 0 {
+                    icons[bundleID] = Data(bytes: dataPointer, count: Int(length))
+                    idevice_data_free(dataPointer.assumingMemoryBound(to: UInt8.self), length)
+                }
+            }
+            Log.info("AirLift: lấy được \(icons.count)/\(bundleIDs.count) icon (lỗi: \(failures))", category: .airlift)
+        } catch {
+            Log.warning("AirLift icon: \(error.localizedDescription)", category: .airlift)
+        }
+        return icons
+    }
+
+    // MARK: - Uninstall
+
+    func uninstall(bundleID: String) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    try Self.uninstallSync(bundleID: bundleID)
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    private static func uninstallSync(bundleID: String) throws {
+        guard AirliftEngine.shared.hasPairing else {
+            throw AirliftServicesError.noPairing
+        }
+        let session = try openSession()
+        defer { session.close() }
+        let client = try session.installationProxy()
+
+        let status = bundleID.withCString { bundleC in
+            installation_proxy_uninstall(client, bundleC, nil)
+        }
+        try check(status, "installation_proxy_uninstall")
+        Log.info("AirLift: đã gỡ cài đặt \(bundleID)", category: .airlift)
+    }
+
+    // MARK: - Session (one tunnel, lazily connected services)
 
     private final class TunnelLease {
         let adapter: OpaquePointer
@@ -130,6 +205,56 @@ final class AirliftServices {
             rsd_handshake_free(handshake)
         }
     }
+
+    private final class AirliftSession {
+        private let lease: TunnelLease
+        private var ipClient: OpaquePointer?
+        private var springboardClient: OpaquePointer?
+
+        init(lease: TunnelLease) {
+            self.lease = lease
+        }
+
+        func installationProxy() throws -> OpaquePointer {
+            if let ipClient { return ipClient }
+            var client: OpaquePointer?
+            try check(
+                installation_proxy_connect_rsd(lease.adapter, lease.handshake, &client),
+                "installation_proxy_connect_rsd"
+            )
+            guard let client else {
+                throw AirliftServicesError.failed("InstallationProxy client rỗng")
+            }
+            ipClient = client
+            return client
+        }
+
+        func springboard() throws -> OpaquePointer {
+            if let springboardClient { return springboardClient }
+            var client: OpaquePointer?
+            try check(
+                springboard_services_connect_rsd(lease.adapter, lease.handshake, &client),
+                "springboard_services_connect_rsd"
+            )
+            guard let client else {
+                throw AirliftServicesError.failed("SpringBoard client rỗng")
+            }
+            springboardClient = client
+            return client
+        }
+
+        func close() {
+            if let ipClient { installation_proxy_client_free(ipClient) }
+            if let springboardClient { springboard_services_free(springboardClient) }
+            lease.close()
+        }
+    }
+
+    private static func openSession() throws -> AirliftSession {
+        AirliftSession(lease: try openTunnel())
+    }
+
+    // MARK: - Tunnel
 
     private static func openTunnel() throws -> TunnelLease {
         var pairingFile: OpaquePointer?
