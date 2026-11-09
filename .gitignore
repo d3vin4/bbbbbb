@@ -1,0 +1,23 @@
+# Build artifacts
+build/
+DerivedData/
+*.ipa
+*.xcarchive
+*.dSYM
+Payload/
+
+# Xcode user data
+xcuserdata/
+*.xcuserstate
+*.xccheckout
+*.xcscmblueprint
+
+# SwiftPM
+.build/
+.swiftpm/
+
+# macOS
+.DS_Store
+
+# Local research workspace (never committed)
+.research/

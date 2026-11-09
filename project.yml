@@ -1,0 +1,70 @@
+name: bbbbbb
+options:
+  bundleIdPrefix: com.d3vin4
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    TARGETED_DEVICE_FAMILY: "1,2"
+    SUPPORTS_MACCATALYST: false
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  bbbbbb:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.d3vin4.bbbbbb
+        PRODUCT_NAME: bbbbbb
+        INFOPLIST_FILE: App/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Entitlements/bbbbbb.entitlements
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    dependencies:
+      - target: PairingActivity
+        embed: true
+      - target: PacketTunnel
+        embed: true
+  PairingActivity:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Widgets
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.d3vin4.bbbbbb.PairingActivity
+        PRODUCT_NAME: PairingActivity
+        INFOPLIST_FILE: Widgets/Info.plist
+        APPLICATION_EXTENSION_API_ONLY: true
+        SKIP_INSTALL: true
+  PacketTunnel:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Tunnel
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.d3vin4.bbbbbb.PacketTunnel
+        PRODUCT_NAME: PacketTunnel
+        INFOPLIST_FILE: Tunnel/Info.plist
+        APPLICATION_EXTENSION_API_ONLY: true
+        SKIP_INSTALL: true
+        CODE_SIGN_ENTITLEMENTS: Entitlements/PacketTunnel.entitlements
+schemes:
+  bbbbbb:
+    build:
+      targets:
+        bbbbbb: all
+        PairingActivity: all
+        PacketTunnel: all
+    run:
+      config: Debug
+    archive:
+      config: Release
