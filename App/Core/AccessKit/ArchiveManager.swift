@@ -60,7 +60,7 @@ final class ArchiveManager {
             return extracted
         }
 
-        let total = listEntries(at: archiveURL).count
+        let total = try listEntries(at: archiveURL).count
         try fileManager.unzipItem(at: archiveURL, to: destinationDirectory)
         return total
     }
