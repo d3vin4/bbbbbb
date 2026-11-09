@@ -14,6 +14,7 @@ struct FileBrowserView: View {
     @State private var isConfirmingDelete = false
     @State private var infoText: String?
     @State private var isShowingInfo = false
+    @State private var archiveTarget: FileEntry?
 
     init(root: ContainerRecord, initialPath: String? = nil) {
         _model = StateObject(wrappedValue: FileBrowserModel(root: root, initialPath: initialPath))
@@ -46,7 +47,11 @@ struct FileBrowserView: View {
                     row(entry)
                         .contentShape(Rectangle())
                         .onTapGesture {
-                            Task { await showInfo(entry) }
+                            if entry.fileExtension == "zip" {
+                                archiveTarget = entry
+                            } else {
+                                Task { await showInfo(entry) }
+                            }
                         }
                         .contextMenu {
                             contextMenu(for: entry)
@@ -126,6 +131,15 @@ struct FileBrowserView: View {
         .sheet(isPresented: $isShowingInfo) {
             infoSheet
         }
+        .sheet(item: $archiveTarget) { entry in
+            ArchiveSheetView(
+                archiveEntry: entry,
+                destinationDirectory: URL(fileURLWithPath: model.currentPath),
+                onDone: {
+                    Task { await model.reload() }
+                }
+            )
+        }
     }
 
     // MARK: - Toolbar
@@ -176,6 +190,11 @@ struct FileBrowserView: View {
                     }
                 } label: {
                     Label("Sắp xếp", systemImage: "arrow.up.arrow.down.circle")
+                }
+                Button {
+                    Task { await model.zipCurrentDirectory() }
+                } label: {
+                    Label("Nén thư mục này thành .zip", systemImage: "doc.zipper")
                 }
                 Toggle("Hiện file ẩn", isOn: $model.showHidden)
                 Toggle("Hiện phần mở rộng", isOn: $model.showExtensions)
@@ -263,6 +282,11 @@ struct FileBrowserView: View {
             Task { await model.duplicate(entry) }
         } label: {
             Label("Nhân bản", systemImage: "plus.square.on.square")
+        }
+        Button {
+            Task { await model.zip(entry) }
+        } label: {
+            Label("Nén thành .zip", systemImage: "doc.zipper")
         }
         Button {
             renameText = entry.name

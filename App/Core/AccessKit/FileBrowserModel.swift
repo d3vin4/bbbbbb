@@ -282,6 +282,27 @@ final class FileBrowserModel: ObservableObject {
         self.clipboard = nil
     }
 
+    // MARK: - Archive
+
+    /// Zips a single entry next to it (<name>.zip).
+    func zip(_ entry: FileEntry) async {
+        let source = URL(fileURLWithPath: entry.path)
+        let destination = URL(fileURLWithPath: entry.path + ".zip")
+        await run { _ in
+            try ArchiveManager.shared.createArchive(items: [source], destinationURL: destination, keepParent: true)
+        }
+    }
+
+    /// Zips the current directory into its parent (<dir>.zip).
+    func zipCurrentDirectory() async {
+        let directory = URL(fileURLWithPath: currentPath)
+        let destination = directory.deletingLastPathComponent()
+            .appendingPathComponent(directory.lastPathComponent + ".zip")
+        await run { _ in
+            try ArchiveManager.shared.createArchive(items: [directory], destinationURL: destination, keepParent: true)
+        }
+    }
+
     func fileInfo(for entry: FileEntry) async -> String {
         await Task.detached {
             let fileManager = FileManager.default

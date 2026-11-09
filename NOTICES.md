@@ -22,6 +22,9 @@ alongside the reused material.
   MIT License. The multi-strategy container-query escape engine follows its
   class-13 / class-7 / class-12 / class-2 technique set.
 
+- **ZIPFoundation** — https://github.com/weichsel/ZIPFoundation — MIT License,
+  © Thomas Zoechling. ZIP create/extract/list used by the Archive manager.
+
 ## Techniques studied (no code copied)
 
 - **forcequitOS/worse_query + bad_query** — GPLv3. Container-access research.

@@ -12,6 +12,10 @@ settings:
     SUPPORTS_MACCATALYST: false
     MARKETING_VERSION: "1.0.0"
     CURRENT_PROJECT_VERSION: "1"
+packages:
+  ZIPFoundation:
+    url: https://github.com/weichsel/ZIPFoundation.git
+    from: "0.9.16"
 targets:
   bbbbbb:
     type: application
@@ -41,6 +45,7 @@ targets:
     dependencies:
       - framework: Vendor/AirliftFFI.xcframework
         embed: false
+      - package: ZIPFoundation
       - target: PairingActivity
         embed: true
       - target: PacketTunnel
