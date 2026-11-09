@@ -30,6 +30,9 @@ typedef struct IdeviceFfiError {
 /// Frees an error returned by any function below (NULL is a no-op).
 void idevice_error_free(IdeviceFfiError *err);
 
+/// Opaque plist node (libplist-compatible API implemented by plist_ffi).
+typedef void *plist_t;
+
 /// Frees data buffers allocated by this library (icons, AFC reads, …).
 void idevice_data_free(uint8_t *data, uint64_t len);
 
@@ -50,9 +53,6 @@ typedef struct InstallationProxyClientHandle InstallationProxyClientHandle;
 typedef struct SpringBoardServicesClientHandle SpringBoardServicesClientHandle;
 typedef struct HouseArrestClientHandle HouseArrestClientHandle;
 typedef struct AfcClientHandle AfcClientHandle;
-
-/// Opaque plist node (libplist-compatible API implemented by plist_ffi).
-typedef void *plist_t;
 
 // ---------------------------------------------------------------------------
 // RPPairing file
