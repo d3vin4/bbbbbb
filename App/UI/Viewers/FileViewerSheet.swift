@@ -10,6 +10,8 @@ struct FileViewerSheet: View {
             TextViewerSheet(entry: entry)
         case .structured(let kind):
             StructuredViewerSheet(entry: entry, kind: kind)
+        case .sqlite:
+            SQLiteViewerSheet(entry: entry)
         case .hex:
             HexViewerSheet(entry: entry)
         case .image, .video, .audio, .pdf:

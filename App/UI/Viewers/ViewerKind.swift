@@ -8,6 +8,7 @@ enum StructuredKind {
 enum ViewerKind {
     case text
     case structured(StructuredKind)
+    case sqlite
     case hex
     case image
     case video
@@ -34,7 +35,9 @@ enum ViewerKind {
             return .audio
         case "pdf":
             return .pdf
-        case "db", "sqlite", "sqlite3", "bin", "dat":
+        case "db", "sqlite", "sqlite3":
+            return .sqlite
+        case "bin", "dat":
             return .hex
         default:
             return .quickLook

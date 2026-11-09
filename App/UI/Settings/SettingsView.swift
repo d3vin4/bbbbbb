@@ -7,6 +7,10 @@ struct SettingsView: View {
 
     @AppStorage(AccessMethod.storageKey) private var accessMethod: AccessMethod = .direct
     @AppStorage("bbbbbb.vpnAutoConnect") private var vpnAutoConnect = true
+    @AppStorage(FileBrowserModel.showHiddenKey) private var filesShowHidden = false
+    @AppStorage(FileBrowserModel.showExtensionsKey) private var filesShowExtensions = false
+    @AppStorage(FileBrowserModel.sortKeyKey) private var filesSortKeyRaw = FileSortKey.name.rawValue
+    @AppStorage(FileBrowserModel.sortAscendingKey) private var filesSortAscending = true
     @State private var probeLines: [String] = []
     @State private var isProbing = false
     @State private var isBrowsingAirlift = false
@@ -17,6 +21,7 @@ struct SettingsView: View {
             accessSection
             vpnSection
             pairingSection
+            filesSection
             logsSection
             versionSection
         }
@@ -146,6 +151,19 @@ struct SettingsView: View {
                     }
                 }
             }
+        }
+    }
+
+    private var filesSection: some View {
+        Section("File Manager") {
+            Toggle("Hiện file ẩn", isOn: $filesShowHidden)
+            Toggle("Hiện phần mở rộng", isOn: $filesShowExtensions)
+            Picker("Sắp xếp mặc định", selection: $filesSortKeyRaw) {
+                ForEach(FileSortKey.allCases) { key in
+                    Text(key.title).tag(key.rawValue)
+                }
+            }
+            Toggle("Sắp xếp tăng dần", isOn: $filesSortAscending)
         }
     }
 

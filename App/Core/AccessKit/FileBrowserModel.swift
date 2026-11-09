@@ -62,16 +62,44 @@ final class FileBrowserModel: ObservableObject {
     @Published private(set) var lastError: String?
 
     @Published var searchText = ""
-    @Published var sortKey: FileSortKey = .name
-    @Published var sortAscending = true
-    @Published var showHidden = false
-    @Published var showExtensions = false
+    @Published var sortKey: FileSortKey = .name {
+        didSet { UserDefaults.standard.set(sortKey.rawValue, forKey: Self.sortKeyKey) }
+    }
+    @Published var sortAscending = true {
+        didSet { UserDefaults.standard.set(sortAscending, forKey: Self.sortAscendingKey) }
+    }
+    @Published var showHidden = false {
+        didSet { UserDefaults.standard.set(showHidden, forKey: Self.showHiddenKey) }
+    }
+    @Published var showExtensions = false {
+        didSet { UserDefaults.standard.set(showExtensions, forKey: Self.showExtensionsKey) }
+    }
     @Published var clipboard: Clipboard?
+
+    static let sortKeyKey = "bbbbbb.files.sortKey"
+    static let sortAscendingKey = "bbbbbb.files.sortAscending"
+    static let showHiddenKey = "bbbbbb.files.showHidden"
+    static let showExtensionsKey = "bbbbbb.files.showExtensions"
 
     init(root: ContainerRecord, initialPath: String? = nil) {
         self.root = root
         self.containerRootPath = root.path
         self.currentPath = initialPath ?? root.path
+
+        let defaults = UserDefaults.standard
+        if let raw = defaults.string(forKey: Self.sortKeyKey),
+           let key = FileSortKey(rawValue: raw) {
+            sortKey = key
+        }
+        if defaults.object(forKey: Self.sortAscendingKey) != nil {
+            sortAscending = defaults.bool(forKey: Self.sortAscendingKey)
+        }
+        if defaults.object(forKey: Self.showHiddenKey) != nil {
+            showHidden = defaults.bool(forKey: Self.showHiddenKey)
+        }
+        if defaults.object(forKey: Self.showExtensionsKey) != nil {
+            showExtensions = defaults.bool(forKey: Self.showExtensionsKey)
+        }
     }
 
     // MARK: - Presentation

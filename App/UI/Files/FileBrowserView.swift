@@ -51,6 +51,8 @@ struct FileBrowserView: View {
                         .onTapGesture {
                             if entry.fileExtension == "zip" {
                                 archiveTarget = entry
+                            } else if ViewerKind.hasRichViewer(for: entry) {
+                                viewerTarget = entry
                             } else {
                                 Task { await showInfo(entry) }
                             }
@@ -141,6 +143,13 @@ struct FileBrowserView: View {
                     Task { await model.reload() }
                 }
             )
+        }
+        .sheet(item: $viewerTarget) { entry in
+            FileViewerSheet(entry: entry)
+        }
+        .sheet(item: $quickLookTarget) { entry in
+            QuickLookSheet(url: URL(fileURLWithPath: entry.path))
+                .ignoresSafeArea()
         }
     }
 
@@ -269,6 +278,22 @@ struct FileBrowserView: View {
             Task { await showInfo(entry) }
         } label: {
             Label("Thông tin", systemImage: "info.circle")
+        }
+        if !entry.isDirectory {
+            Button {
+                if ViewerKind.hasRichViewer(for: entry) {
+                    viewerTarget = entry
+                } else {
+                    quickLookTarget = entry
+                }
+            } label: {
+                Label("Xem nội dung", systemImage: "eye")
+            }
+            Button {
+                quickLookTarget = entry
+            } label: {
+                Label("Quick Look", systemImage: "doc.text.magnifyingglass")
+            }
         }
         Button {
             model.copyToClipboard([entry], mode: .copy)
