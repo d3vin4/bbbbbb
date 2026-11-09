@@ -27,6 +27,16 @@ struct AppsView: View {
                         Text(SupportMatrix.currentOSVersion)
                             .foregroundStyle(SupportMatrix.isRunningSupportedOS ? .secondary : Color.orange)
                     }
+                    NavigationLink {
+                        CleanTempView(focusBundleID: nil)
+                    } label: {
+                        Label("Dọn Temp & Cache", systemImage: "sparkles")
+                    }
+                    NavigationLink {
+                        AppGroupsView()
+                    } label: {
+                        Label("App Groups", systemImage: "rectangle.3.group")
+                    }
                 }
 
                 applicationsSection

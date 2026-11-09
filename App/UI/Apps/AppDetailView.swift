@@ -45,6 +45,11 @@ struct AppDetailView: View {
 
             Section("Hành động") {
                 if app.source == .direct {
+                    NavigationLink {
+                        CleanTempView(focusBundleID: app.bundleID)
+                    } label: {
+                        Label("Dọn Temp & Cache", systemImage: "sparkles")
+                    }
                     Button {
                         Task { await activateContainer() }
                     } label: {
