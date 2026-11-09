@@ -106,19 +106,15 @@ final class ArchiveManager {
             var isDirectory: ObjCBool = false
             guard fileManager.fileExists(atPath: item.path, isDirectory: &isDirectory) else { continue }
             if isDirectory.boolValue {
-                try archive.addEntry(
-                    with: relative + "/",
-                    type: .directory,
-                    uncompressedSize: 0,
-                    provider: { _, _ in Data() }
-                )
-            } else {
-                try archive.addEntry(
-                    with: relative,
-                    fileURL: item,
-                    compressionMethod: .deflate
-                )
+                // Directory entries are optional in ZIP; files carry their full
+                // relative path so extractors recreate the tree.
+                continue
             }
+            try archive.addEntry(
+                with: relative,
+                fileURL: item,
+                compressionMethod: .deflate
+            )
         }
     }
 }
