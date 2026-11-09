@@ -108,13 +108,8 @@ static BQAPI *BQShared(void) {
     return &api;
 }
 
-static void BQSetError(NSError **error, NSInteger code, NSString *message) {
+static void BQSetLastError(NSString *message) {
     gLastError = message;
-    if (error) {
-        *error = [NSError errorWithDomain:BQErrorDomain
-                                     code:code
-                                 userInfo:@{NSLocalizedDescriptionKey: message ?: @"unknown"}];
-    }
 }
 
 static NSString *BQDescribeQueryError(BQAPI *api, void *query, NSString *where) {
@@ -641,17 +636,16 @@ static int64_t BQEscapeClass2Stage(NSString *target) {
 }
 
 + (NSArray<NSString *> *)enumerateIdentifiersForClass:(uint64_t)cls
-                                                limit:(NSUInteger)limit
-                                                error:(NSError **)error {
+                                                limit:(NSUInteger)limit {
     BQAPI *api = BQShared();
     if (!api->queryCreate || !api->queryIterate || !api->objectGetIdentifier || limit == 0) {
-        BQSetError(error, -1, @"MCM enumeration symbols unavailable");
+        BQSetLastError(@"MCM enumeration symbols unavailable");
         return @[];
     }
 
     void *query = api->queryCreate();
     if (!query) {
-        BQSetError(error, -2, @"container_query_create failed");
+        BQSetLastError(@"container_query_create failed");
         return @[];
     }
 
@@ -670,7 +664,7 @@ static int64_t BQEscapeClass2Stage(NSString *target) {
     });
 
     if (identifiers.count == 0) {
-        BQSetError(error, -3, BQDescribeQueryError(api, query, @"enumerate"));
+        BQSetLastError(BQDescribeQueryError(api, query, @"enumerate"));
     }
     api->queryFree(query);
     return identifiers.array;
@@ -678,17 +672,16 @@ static int64_t BQEscapeClass2Stage(NSString *target) {
 
 + (NSString *)containerPathForClass:(uint64_t)cls
                          identifier:(NSString *)identifier
-                              group:(BOOL)group
-                              error:(NSError **)error {
+                              group:(BOOL)group {
     BQAPI *api = BQShared();
     if (!api->queryCreate || !identifier.length) {
-        BQSetError(error, -1, @"MCM path lookup unavailable or empty identifier");
+        BQSetLastError(@"MCM path lookup unavailable or empty identifier");
         return nil;
     }
 
     void *query = api->queryCreate();
     if (!query) {
-        BQSetError(error, -2, @"container_query_create failed");
+        BQSetLastError(@"container_query_create failed");
         return nil;
     }
 
@@ -705,7 +698,7 @@ static int64_t BQEscapeClass2Stage(NSString *target) {
     void *result = api->queryGetSingle(query);
     NSString *path = result && api->objectGetPath ? BQNormalizedContainerPath(api->objectGetPath(result)) : nil;
     if (!path.length) {
-        BQSetError(error, -3, BQDescribeQueryError(api, query, @"path-lookup"));
+        BQSetLastError(BQDescribeQueryError(api, query, @"path-lookup"));
     }
     api->queryFree(query);
     return path;
@@ -713,14 +706,13 @@ static int64_t BQEscapeClass2Stage(NSString *target) {
 
 + (NSString *)activateContainerForClass:(uint64_t)cls
                              identifier:(NSString *)identifier
-                                  group:(BOOL)group
-                                  error:(NSError **)error {
+                                  group:(BOOL)group {
     if (![self hasMHAIdentity]) {
-        BQSetError(error, -10, @"bundle identity is not com.apple.mobile.MobileHouseArrest");
+        BQSetLastError(@"bundle identity is not com.apple.mobile.MobileHouseArrest");
         return nil;
     }
     if (![self isAvailable] || !identifier.length) {
-        BQSetError(error, -1, @"MCM unavailable or empty identifier");
+        BQSetLastError(@"MCM unavailable or empty identifier");
         return nil;
     }
 
@@ -737,7 +729,7 @@ static int64_t BQEscapeClass2Stage(NSString *target) {
         BQAPI *api = BQShared();
         void *query = api->queryCreate();
         if (!query) {
-            BQSetError(error, -2, @"container_query_create failed");
+            BQSetLastError(@"container_query_create failed");
             return nil;
         }
 
@@ -754,7 +746,7 @@ static int64_t BQEscapeClass2Stage(NSString *target) {
         void *result = api->queryGetSingle(query);
         if (!result) {
             NSString *detail = BQDescribeQueryError(api, query, @"lease");
-            BQSetError(error, -3, detail);
+            BQSetLastError(detail);
             api->queryFree(query);
             return nil;
         }
@@ -767,7 +759,7 @@ static int64_t BQEscapeClass2Stage(NSString *target) {
 
         BOOL activated = tokenPresent && api->objectActivate && api->objectActivate(activation, false);
         if (!activated || !path.length) {
-            BQSetError(error, -5, tokenPresent
+            BQSetLastError(tokenPresent
                 ? @"sandbox extension activation failed"
                 : @"MCM object contained no sandbox token");
             if (activation && api->objectFree) api->objectFree(activation);
@@ -777,7 +769,7 @@ static int64_t BQEscapeClass2Stage(NSString *target) {
 
         int descriptor = open(path.fileSystemRepresentation, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
         if (descriptor < 0) {
-            BQSetError(error, -6, [NSString stringWithFormat:@"container root open failed errno=%d", errno]);
+            BQSetLastError([NSString stringWithFormat:@"container root open failed errno=%d", errno]);
             if (api->objectFree) api->objectFree(activation);
             api->queryFree(query);
             return nil;

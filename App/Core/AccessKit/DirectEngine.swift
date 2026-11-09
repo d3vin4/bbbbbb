@@ -53,15 +53,24 @@ final class DirectEngine {
 
     /// Installed apps: bundle identifier + data container path.
     func fetchApplications(limit: Int = 600) throws -> [ContainerRecord] {
-        let identifiers = try BQCore.enumerateIdentifiers(forClass: ContainerRecord.Kind.application.mcmClass,
-                                                           limit: UInt(limit))
+        let identifiers = BQCore.enumerateIdentifiers(
+            forClass: ContainerRecord.Kind.application.mcmClass,
+            limit: UInt(limit)
+        )
+        guard !identifiers.isEmpty else {
+            throw Self.error(from: "liệt kê ứng dụng")
+        }
+
         var records: [ContainerRecord] = []
         records.reserveCapacity(identifiers.count)
         for identifier in identifiers {
-            if let path = try? BQCore.containerPath(forClass: ContainerRecord.Kind.application.mcmClass,
-                                                    identifier: identifier,
-                                                    group: false) {
-                records.append(ContainerRecord(identifier: identifier, kind: .application, path: path))
+            let containerPath: String? = BQCore.containerPath(
+                forClass: ContainerRecord.Kind.application.mcmClass,
+                identifier: identifier,
+                group: false
+            )
+            if let containerPath {
+                records.append(ContainerRecord(identifier: identifier, kind: .application, path: containerPath))
             }
         }
         return records
@@ -69,15 +78,24 @@ final class DirectEngine {
 
     /// App Group containers: group identifier + container path.
     func fetchAppGroups(limit: Int = 600) throws -> [ContainerRecord] {
-        let identifiers = try BQCore.enumerateIdentifiers(forClass: ContainerRecord.Kind.appGroup.mcmClass,
-                                                           limit: UInt(limit))
+        let identifiers = BQCore.enumerateIdentifiers(
+            forClass: ContainerRecord.Kind.appGroup.mcmClass,
+            limit: UInt(limit)
+        )
+        guard !identifiers.isEmpty else {
+            throw Self.error(from: "liệt kê App Group")
+        }
+
         var records: [ContainerRecord] = []
         records.reserveCapacity(identifiers.count)
         for identifier in identifiers {
-            if let path = try? BQCore.containerPath(forClass: ContainerRecord.Kind.appGroup.mcmClass,
-                                                    identifier: identifier,
-                                                    group: true) {
-                records.append(ContainerRecord(identifier: identifier, kind: .appGroup, path: path))
+            let containerPath: String? = BQCore.containerPath(
+                forClass: ContainerRecord.Kind.appGroup.mcmClass,
+                identifier: identifier,
+                group: true
+            )
+            if let containerPath {
+                records.append(ContainerRecord(identifier: identifier, kind: .appGroup, path: containerPath))
             }
         }
         return records
@@ -86,25 +104,26 @@ final class DirectEngine {
     /// Activates a retained lease for the container and returns its path.
     @discardableResult
     func activate(_ record: ContainerRecord) throws -> String {
-        guard let path = try BQCore.activateContainer(forClass: record.kind.mcmClass,
-                                                      identifier: record.identifier,
-                                                      group: record.kind == .appGroup) else {
-            throw NSError(
-                domain: "BQCoreErrorDomain",
-                code: -1,
-                userInfo: [NSLocalizedDescriptionKey: BQCore.lastErrorDescription() ?? "activate failed"]
-            )
+        let activatedPath: String? = BQCore.activateContainer(
+            forClass: record.kind.mcmClass,
+            identifier: record.identifier,
+            group: record.kind == .appGroup
+        )
+        guard let activatedPath else {
+            throw Self.error(from: "kích hoạt \(record.identifier)")
         }
-        return path
+        return activatedPath
     }
 
     /// Directory listing that falls back to fsgetpath enumeration when readdir
     /// is denied inside the container.
     func listDirectory(at path: String) throws -> [String] {
         let url = URL(fileURLWithPath: path)
-        if let entries = try? FileManager.default.contentsOfDirectory(at: url,
-                                                                      includingPropertiesForKeys: nil,
-                                                                      options: []) {
+        if let entries = try? FileManager.default.contentsOfDirectory(
+            at: url,
+            includingPropertiesForKeys: nil,
+            options: []
+        ) {
             return entries.map(\.lastPathComponent)
         }
         let enumerated = BQCore.listDirectoryEntries(path, maxInode: 2_000_000)
@@ -113,5 +132,13 @@ final class DirectEngine {
 
     func releaseLeases() {
         BQCore.releaseLeases()
+    }
+
+    private static func error(from context: String) -> NSError {
+        NSError(
+            domain: "BQCoreErrorDomain",
+            code: -1,
+            userInfo: [NSLocalizedDescriptionKey: BQCore.lastErrorDescription() ?? "\(context) thất bại"]
+        )
     }
 }

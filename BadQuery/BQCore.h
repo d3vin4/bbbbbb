@@ -26,23 +26,22 @@ NS_ASSUME_NONNULL_BEGIN
 #pragma mark - MCM direct queries (MHA-C2)
 
 /// Enumerate container identifiers for an MCM class (2 = app data, 7 = app group).
-/// Returns an empty array (with `error` set) when enumeration is denied.
+/// Returns an empty array when enumeration is denied (see +lastErrorDescription).
 + (NSArray<NSString *> *)enumerateIdentifiersForClass:(uint64_t)cls
-                                                limit:(NSUInteger)limit
-                                                error:(NSError **)error;
+                                                limit:(NSUInteger)limit;
 
-/// Resolve the on-disk path of a container. Returns nil with `error` set on failure.
+/// Resolve the on-disk path of a container. Returns nil on failure
+/// (see +lastErrorDescription).
 + (nullable NSString *)containerPathForClass:(uint64_t)cls
                                   identifier:(NSString *)identifier
-                                       group:(BOOL)group
-                                       error:(NSError **)error;
+                                       group:(BOOL)group;
 
 /// Activate a retained sandbox-extension lease for a container and return its
-/// path. Leases stay alive until +releaseLeases is called.
+/// path. Leases stay alive until +releaseLeases is called. Returns nil on
+/// failure (see +lastErrorDescription).
 + (nullable NSString *)activateContainerForClass:(uint64_t)cls
                                       identifier:(NSString *)identifier
-                                           group:(BOOL)group
-                                           error:(NSError **)error;
+                                           group:(BOOL)group;
 
 /// Release all activated container leases.
 + (void)releaseLeases;
