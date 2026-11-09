@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject private var store: LogStore
     @ObservedObject private var tunnel = TunnelManager.shared
+    @ObservedObject private var pairing = PairingController.shared
 
     @AppStorage(AccessMethod.storageKey) private var accessMethod: AccessMethod = .direct
     @AppStorage("bbbbbb.vpnAutoConnect") private var vpnAutoConnect = true
@@ -13,6 +14,7 @@ struct SettingsView: View {
         List {
             accessSection
             vpnSection
+            pairingSection
             logsSection
             versionSection
         }
@@ -83,6 +85,44 @@ struct SettingsView: View {
             Text("Tunnel loopback (10.7.0.1) cho phép ứng dụng kết nối tới dịch vụ hệ thống mà không cần cài LocalDevVPN riêng. Khi sideload, cần ký kèm entitlement NetworkExtension.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    private var pairingSection: some View {
+        Section("Pairing (AirLift)") {
+            LabeledContent("Trạng thái") {
+                Text(pairing.running ? pairing.pairingStatus : (pairing.hasPairingFile ? "Đã pair" : "Chưa pair"))
+                    .foregroundStyle(.secondary)
+            }
+            if let pin = pairing.pairingPIN {
+                Text("PIN: \(pin)")
+                    .font(.title2.monospaced().bold())
+            }
+            if pairing.running {
+                Button("Huỷ pairing") {
+                    pairing.softCancel()
+                }
+            } else {
+                Button("Pair trực tiếp trên iPhone") {
+                    Task {
+                        do {
+                            _ = try await pairing.startAndWait()
+                        } catch {
+                            Log.error("Pairing lỗi: \(error.localizedDescription)", category: .pairing)
+                        }
+                    }
+                }
+            }
+            Text("Mở Settings ▸ Privacy & Security ▸ Developer Mode ▸ Pair with bbbbbb và nhập PIN ở trên (PIN cũng hiển thị trên Live Activity).")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            if pairing.hasPairingFile {
+                Button(role: .destructive) {
+                    PairingController.deletePairingFile()
+                } label: {
+                    Text("Xoá file pairing")
+                }
+            }
         }
     }
 

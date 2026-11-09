@@ -33,7 +33,11 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Entitlements/bbbbbb.entitlements
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # AirliftFFI (Rust static lib, MIT) pulls C++ symbols from aws-lc.
+        OTHER_LDFLAGS: "-lc++"
     dependencies:
+      - framework: Vendor/AirliftFFI.xcframework
+        embed: false
       - target: PairingActivity
         embed: true
       - target: PacketTunnel

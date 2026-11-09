@@ -29,6 +29,7 @@ struct RootTabView: View {
         .task {
             guard !didLogLaunch else { return }
             didLogLaunch = true
+            AirliftEngine.shared.prepare()
             Log.info(
                 "bbbbbb khởi động — iOS \(SupportMatrix.currentOSVersion) (hỗ trợ \(SupportMatrix.supportSummary))",
                 category: .app
