@@ -33,6 +33,7 @@ final class TunnelManager: ObservableObject {
 
     var isConnected: Bool { status == .connected }
     var isBusy: Bool { status == .connecting || status == .disconnecting || status == .reasserting }
+    var hasConfiguration: Bool { manager != nil }
 
     var statusDescription: String {
         switch status {

@@ -1,12 +1,19 @@
 import SwiftUI
 
 struct AppsView: View {
+    @ObservedObject private var tunnel = TunnelManager.shared
+    @AppStorage("bbbbbb.vpnAutoConnect") private var vpnAutoConnect = true
+
     var body: some View {
         NavigationStack {
             List {
                 Section("Thiết bị") {
-                    LabeledContent("Kết nối") {
-                        Text("Chưa kết nối")
+                    LabeledContent("Tunnel loopback") {
+                        Text(tunnel.statusDescription)
+                            .foregroundStyle(tunnel.isConnected ? Color.green : Color.secondary)
+                    }
+                    LabeledContent("Cơ chế truy cập") {
+                        Text(AccessMethod.current.title)
                             .foregroundStyle(.secondary)
                     }
                     LabeledContent("Hỗ trợ") {
@@ -28,12 +35,12 @@ struct AppsView: View {
                     SetupStepRow(
                         number: 2,
                         title: "Pair thiết bị",
-                        detail: "Mở màn Pairing để lấy mã PIN 6 số (hiển thị cả trên Live Activity), rồi nhập trong Settings ▸ Privacy & Security ▸ Developer Mode."
+                        detail: "iOS 27: mở màn Pairing để lấy mã PIN 6 số (hiển thị cả trên Live Activity), rồi nhập trong Settings ▸ Privacy & Security ▸ Developer Mode."
                     )
                     SetupStepRow(
                         number: 3,
                         title: "Duyệt dữ liệu",
-                        detail: "Sau khi pairing + escape sẵn sàng, mở container ứng dụng và App Groups từ danh sách."
+                        detail: "Mở container ứng dụng và App Groups; chọn cơ chế Trực tiếp hoặc AirLift trong Settings."
                     )
                 }
 
@@ -41,7 +48,7 @@ struct AppsView: View {
                     ContentUnavailableView(
                         "Chưa có dữ liệu ứng dụng",
                         systemImage: "square.stack.3d.up.slash",
-                        description: Text("Danh sách ứng dụng sẽ xuất hiện sau khi hoàn tất tích hợp Airlift + BadQuery.")
+                        description: Text("Danh sách ứng dụng sẽ xuất hiện khi engine container được bật trên thiết bị đã ký đủ entitlement.")
                     )
                 }
             }
@@ -53,6 +60,12 @@ struct AppsView: View {
                     } label: {
                         Image(systemName: "gearshape")
                     }
+                }
+            }
+            .task {
+                await tunnel.load()
+                if vpnAutoConnect, tunnel.hasConfiguration, tunnel.status == .disconnected {
+                    await tunnel.connect()
                 }
             }
         }
