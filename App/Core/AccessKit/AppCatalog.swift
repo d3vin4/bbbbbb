@@ -130,9 +130,10 @@ final class AppCatalog: ObservableObject {
     private func scheduleLaunchServicesMerge() {
         guard DirectEngine.shared.capabilityReport().mcmAvailable else { return }
         Task {
-            guard let records = try? await Task.detached {
+            let records = try? await Task.detached {
                 try DirectEngine.shared.fetchApplicationsViaLaunchServices(limit: 600)
-            }.value, !records.isEmpty else { return }
+            }.value
+            guard let records, !records.isEmpty else { return }
 
             let existing = Set(apps.map(\.bundleID))
             let additions = records
@@ -196,10 +197,11 @@ final class AppCatalog: ObservableObject {
             // iOS 26+ có thể ẩn app khỏi enumerate: thử LaunchServices store
             // (class 10 com.apple.lsd → xác nhận class-2). Soft-gate.
             if report.mcmAvailable {
-                if let records = try? await Task.detached { () -> [ContainerRecord] in
+                let lsRecords = try? await Task.detached { () -> [ContainerRecord] in
                     try DirectEngine.shared.fetchApplicationsViaLaunchServices(limit: 600)
-                }.value, !records.isEmpty {
-                    apps = records.map {
+                }.value
+                if let lsRecords, !lsRecords.isEmpty {
+                    apps = lsRecords.map {
                         CatalogApp(
                             bundleID: $0.identifier,
                             name: $0.identifier,
@@ -212,7 +214,7 @@ final class AppCatalog: ObservableObject {
                     state = .loaded
                     saveCatalogCache()
                     loadCachedIcons()
-                    Log.info("AppCatalog: liệt kê qua LaunchServices store — \(records.count) app", category: .badquery)
+                    Log.info("AppCatalog: liệt kê qua LaunchServices store — \(lsRecords.count) app", category: .badquery)
                     return true
                 }
             }
