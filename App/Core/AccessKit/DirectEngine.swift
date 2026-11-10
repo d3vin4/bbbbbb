@@ -472,7 +472,18 @@ final class DirectEngine {
         // Token riêng cho container này (class-7) — giữ nguyên để đọc được
         // cây thư mục khi duyệt tệp.
         let handle = BQCore.escapeTarget(target)
-        guard handle >= 0 else {
+        if handle < 0 {
+            // Không lấy được token (ví dụ thư mục cha của container trên 27.0):
+            // vẫn cho duyệt chỉ-đọc qua fsgetpath thay vì báo lỗi truy cập.
+            let entries = BQCore.listDirectoryEntries(target, maxInode: 2_000_000)
+            if !entries.isEmpty {
+                Log.info(
+                    "Direct: \(target) không có token — duyệt chỉ-đọc qua fsgetpath",
+                    category: .badquery
+                )
+                store(cachedPath: target, for: record.id)
+                return target
+            }
             throw Self.error(from: "escape \(record.identifier)")
         }
         let escaped = BQCore.escapedPath(forHandle: handle) ?? target
@@ -505,6 +516,16 @@ final class DirectEngine {
         }
         let enumerated = BQCore.listDirectoryEntries(path, maxInode: 2_000_000)
         return enumerated.map { ($0 as NSString).lastPathComponent }
+    }
+
+    /// Bảo đảm token truy cập cho một file cụ thể trước khi đọc (token thư mục
+    /// đôi khi chỉ phủ liệt kê). Grant cache làm lần sau miễn phí.
+    @discardableResult
+    func ensureFileAccess(_ path: String) -> Bool {
+        guard !path.isEmpty else { return false }
+        if BQCore.escapeTarget(path) >= 0 { return true }
+        let parent = (path as NSString).deletingLastPathComponent
+        return BQCore.escapeTarget(parent) >= 0
     }
 
     func releaseLeases() {

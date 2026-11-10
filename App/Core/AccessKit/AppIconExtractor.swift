@@ -46,6 +46,8 @@ enum AppIconExtractor {
         for name in looseIconNames(info).reversed() {
             for suffix in ["@3x.png", "@2x.png", ".png"] {
                 let path = (appPath as NSString).appendingPathComponent(name + suffix)
+                // Token riêng cho file icon (token thư mục chỉ phủ liệt kê).
+                _ = BQCore.escapeTarget(path)
                 guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
                       data.count > 256,
                       let image = UIImage(data: data) else { continue }
@@ -65,7 +67,10 @@ enum AppIconExtractor {
         guard let allocated = catalogClass.perform(allocSelector)?.takeUnretainedValue() as? NSObject,
               allocated.responds(to: NSSelectorFromString("initWithURL:")) else { return nil }
 
-        let url = URL(fileURLWithPath: (appPath as NSString).appendingPathComponent("Assets.car"))
+        let assetsPath = (appPath as NSString).appendingPathComponent("Assets.car")
+        // Token riêng cho Assets.car trước khi mở bằng CoreUI.
+        _ = BQCore.escapeTarget(assetsPath)
+        let url = URL(fileURLWithPath: assetsPath)
         guard let catalog = allocated.perform(NSSelectorFromString("initWithURL:"), with: url)?
             .takeUnretainedValue() as? NSObject else { return nil }
 

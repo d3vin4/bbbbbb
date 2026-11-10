@@ -78,13 +78,22 @@ final class LaunchServicesIndex: @unchecked Sendable {
 
         // File nằm trong container của daemon → cần token cho thư mục chứa nó
         // trong suốt quá trình đọc (trước đây thu hồi token rồi mới đọc → lỗi).
+        // Token cho cả thư mục chứa lẫn chính file (token thư mục đôi khi chỉ
+        // phủ việc liệt kê, không phủ đọc file bên trong).
         let storeDirectory = (storePath as NSString).deletingLastPathComponent
-        let handle = BQCore.escapeTarget(storeDirectory)
+        let dirHandle = BQCore.escapeTarget(storeDirectory)
         defer {
-            if handle >= 0 { BQCore.endEscape(handle) }
+            if dirHandle >= 0 { BQCore.endEscape(dirHandle) }
+        }
+        let fileHandle = BQCore.escapeTarget(storePath)
+        defer {
+            if fileHandle >= 0 { BQCore.endEscape(fileHandle) }
         }
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: storePath), options: .mappedIfSafe) else {
-            Log.warning("LaunchServices: không đọc được \(storePath) (token \(handle))", category: .app)
+            Log.warning(
+                "LaunchServices: không đọc được \(storePath) (token dir \(dirHandle), file \(fileHandle))",
+                category: .app
+            )
             return []
         }
 
