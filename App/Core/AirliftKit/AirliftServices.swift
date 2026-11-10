@@ -75,9 +75,9 @@ final class AirliftServices {
         guard AirliftEngine.shared.hasPairing else {
             throw AirliftServicesError.noPairing
         }
-        let session = try openSession()
-        defer { session.close() }
-        return try browseApplications(with: session.installationProxy())
+        return try withSession { session in
+            try browseApplications(with: session.installationProxy())
+        }
     }
 
     /// Danh sách app + icon trong MỘT tunnel duy nhất (đường nhanh nhất cho AirLift).
@@ -99,36 +99,36 @@ final class AirliftServices {
             throw AirliftServicesError.noPairing
         }
 
-        let session = try openSession()
-        defer { session.close() }
-        let ipClient = try session.installationProxy()
-        let apps = try browseApplications(with: ipClient)
+        return try withSession { session in
+            let ipClient = try session.installationProxy()
+            let apps = try browseApplications(with: ipClient)
 
-        var icons: [String: Data] = [:]
-        if iconLimit > 0, let springboard = try? session.springboard() {
-            var failures = 0
-            for bundleID in apps.map(\.bundleID).prefix(iconLimit) {
-                var dataPointer: UnsafeMutableRawPointer?
-                var length: UInt64 = 0
-                let status = bundleID.withCString { bundleC in
-                    springboard_services_get_icon(springboard, bundleC, &dataPointer, &length)
-                }
-                if let status {
-                    if failures < 3 {
-                        Log.warning("AirLift icon \(bundleID): \(describe(status))", category: .airlift)
+            var icons: [String: Data] = [:]
+            if iconLimit > 0, let springboard = try? session.springboard() {
+                var failures = 0
+                for bundleID in apps.map(\.bundleID).prefix(iconLimit) {
+                    var dataPointer: UnsafeMutableRawPointer?
+                    var length: UInt64 = 0
+                    let status = bundleID.withCString { bundleC in
+                        springboard_services_get_icon(springboard, bundleC, &dataPointer, &length)
                     }
-                    failures += 1
-                    continue
-                }
-                if let dataPointer, length > 0 {
-                    icons[bundleID] = Data(bytes: dataPointer, count: Int(length))
-                    idevice_data_free(dataPointer.assumingMemoryBound(to: UInt8.self), length)
+                    if let status {
+                        if failures < 3 {
+                            Log.warning("AirLift icon \(bundleID): \(describe(status))", category: .airlift)
+                        }
+                        failures += 1
+                        continue
+                    }
+                    if let dataPointer, length > 0 {
+                        icons[bundleID] = Data(bytes: dataPointer, count: Int(length))
+                        idevice_data_free(dataPointer.assumingMemoryBound(to: UInt8.self), length)
+                    }
                 }
             }
-        }
 
-        Log.info("AirLift: catalog \(apps.count) app, \(icons.count) icon (một tunnel)", category: .airlift)
-        return (apps, icons)
+            Log.info("AirLift: catalog \(apps.count) app, \(icons.count) icon (một tunnel)", category: .airlift)
+            return (apps, icons)
+        }
     }
 
     /// Browse với client InstallationProxy đã kết nối sẵn.
@@ -404,6 +404,75 @@ final class AirliftServices {
 
     private static func openSession() throws -> AirliftSession {
         AirliftSession(lease: try openTunnel())
+    }
+
+    // MARK: - Warm session (giữ tunnel sống giữa các thao tác)
+
+    private static let warmLock = NSLock()
+    private static var warmSession: AirliftSession?
+    private static var warmSessionDate = Date.distantPast
+    private static let warmTTL: TimeInterval = 120
+
+    private static func acquireSession() throws -> (session: AirliftSession, reused: Bool) {
+        warmLock.lock()
+        let existing = warmSession
+        let age = Date().timeIntervalSince(warmSessionDate)
+        warmLock.unlock()
+
+        if let existing, age < warmTTL {
+            return (existing, true)
+        }
+        if existing != nil {
+            retireWarmSession()
+        }
+        let fresh = try openSession()
+        warmLock.lock()
+        warmSession = fresh
+        warmSessionDate = Date()
+        warmLock.unlock()
+        return (fresh, false)
+    }
+
+    private static func retireWarmSession() {
+        warmLock.lock()
+        let session = warmSession
+        warmSession = nil
+        warmLock.unlock()
+        session?.close()
+    }
+
+    /// Đóng tunnel ấm (gọi khi VPN ngắt).
+    static func dropWarmSession() {
+        retireWarmSession()
+    }
+
+    /// Tunnel chết giữa chừng → bỏ session ấm và thử lại một lần với tunnel mới.
+    private static func withSession<T>(_ body: (AirliftSession) throws -> T) throws -> T {
+        let first = try acquireSession()
+        do {
+            return try body(first.session)
+        } catch {
+            retireWarmSession()
+            guard first.reused else { throw error }
+            Log.warning("AirLift: session ấm lỗi — thử lại với tunnel mới (\(error.localizedDescription))", category: .airlift)
+            let fresh = try acquireSession()
+            return try body(fresh.session)
+        }
+    }
+
+    /// Chuẩn bị sẵn tunnel sau khi VPN phản hồi — lần browse đầu tiên tức thì.
+    func prewarmIfPossible() {
+        guard AirliftEngine.shared.hasPairing else { return }
+        DispatchQueue.global(qos: .utility).async {
+            do {
+                let acquired = try Self.acquireSession()
+                if !acquired.reused {
+                    Log.info("AirLift: prewarm tunnel xong", category: .airlift)
+                }
+            } catch {
+                Log.debug("AirLift: prewarm bỏ qua (\(error.localizedDescription))", category: .airlift)
+            }
+        }
     }
 
     // MARK: - Tunnel

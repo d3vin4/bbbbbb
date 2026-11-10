@@ -93,6 +93,7 @@ final class TunnelManager: ObservableObject {
     func disconnect() {
         manager?.connection.stopVPNTunnel()
         serviceReachable = false
+        AirliftServices.dropWarmSession()
         Log.info("Đã yêu cầu ngắt tunnel", category: .vpn)
         refreshStatus()
     }
@@ -150,6 +151,9 @@ final class TunnelManager: ObservableObject {
             "Tunnel: probe \(TunnelConstants.peerHost):49152 → \(serviceReachable ? "OK" : "không phản hồi")",
             category: .vpn
         )
+        if serviceReachable {
+            AirliftServices.shared.prewarmIfPossible()
+        }
     }
 
     private static func probePeer(host: String, port: UInt16, timeout: TimeInterval) async -> Bool {
