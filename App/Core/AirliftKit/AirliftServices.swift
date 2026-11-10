@@ -75,11 +75,64 @@ final class AirliftServices {
         guard AirliftEngine.shared.hasPairing else {
             throw AirliftServicesError.noPairing
         }
+        let session = try openSession()
+        defer { session.close() }
+        return try browseApplications(with: session.installationProxy())
+    }
+
+    /// Danh sách app + icon trong MỘT tunnel duy nhất (đường nhanh nhất cho AirLift).
+    func fetchAppCatalog(iconLimit: Int = 80) async throws -> (apps: [AirliftAppInfo], icons: [String: Data]) {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<([AirliftAppInfo], [String: Data]), Error>) in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let result = try Self.fetchAppCatalogSync(iconLimit: iconLimit)
+                    continuation.resume(returning: result)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    private static func fetchAppCatalogSync(iconLimit: Int) throws -> (apps: [AirliftAppInfo], icons: [String: Data]) {
+        guard AirliftEngine.shared.hasPairing else {
+            throw AirliftServicesError.noPairing
+        }
 
         let session = try openSession()
         defer { session.close() }
-        let client = try session.installationProxy()
+        let ipClient = try session.installationProxy()
+        let apps = try browseApplications(with: ipClient)
 
+        var icons: [String: Data] = [:]
+        if iconLimit > 0, let springboard = try? session.springboard() {
+            var failures = 0
+            for bundleID in apps.map(\.bundleID).prefix(iconLimit) {
+                var dataPointer: UnsafeMutableRawPointer?
+                var length: UInt64 = 0
+                let status = bundleID.withCString { bundleC in
+                    springboard_services_get_icon(springboard, bundleC, &dataPointer, &length)
+                }
+                if let status {
+                    if failures < 3 {
+                        Log.warning("AirLift icon \(bundleID): \(describe(status))", category: .airlift)
+                    }
+                    failures += 1
+                    continue
+                }
+                if let dataPointer, length > 0 {
+                    icons[bundleID] = Data(bytes: dataPointer, count: Int(length))
+                    idevice_data_free(dataPointer.assumingMemoryBound(to: UInt8.self), length)
+                }
+            }
+        }
+
+        Log.info("AirLift: catalog \(apps.count) app, \(icons.count) icon (một tunnel)", category: .airlift)
+        return (apps, icons)
+    }
+
+    /// Browse với client InstallationProxy đã kết nối sẵn.
+    private static func browseApplications(with client: OpaquePointer) throws -> [AirliftAppInfo] {
         var rawArrayPointer: UnsafeMutableRawPointer?
         var count: UInt64 = 0
         try check(

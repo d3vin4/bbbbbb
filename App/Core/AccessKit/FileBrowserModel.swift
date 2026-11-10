@@ -54,7 +54,7 @@ final class FileBrowserModel: ObservableObject {
     }
 
     let root: ContainerRecord
-    let containerRootPath: String
+    private(set) var containerRootPath: String
 
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var entries: [FileEntry] = []
@@ -160,11 +160,12 @@ final class FileBrowserModel: ObservableObject {
     func reload() async {
         phase = .loading
         let root = self.root
-        let path = currentPath
+        let requestedPath = currentPath
 
         do {
-            let loaded = try await Task.detached { () -> [FileEntry] in
-                _ = try DirectEngine.shared.activate(root)
+            let result = try await Task.detached { () -> (activated: String, entries: [FileEntry]) in
+                let activated = try DirectEngine.shared.activate(root)
+                let path = requestedPath.isEmpty ? activated : requestedPath
                 let fileManager = FileManager.default
                 let url = URL(fileURLWithPath: path)
                 let keys: [URLResourceKey] = [
@@ -176,7 +177,7 @@ final class FileBrowserModel: ObservableObject {
                     includingPropertiesForKeys: keys,
                     options: []
                 ) {
-                    return listing.map { item in
+                    let entries = listing.map { item in
                         let values = try? item.resourceValues(forKeys: Set(keys))
                         return FileEntry(
                             name: item.lastPathComponent,
@@ -187,6 +188,7 @@ final class FileBrowserModel: ObservableObject {
                             isHidden: values?.isHidden ?? item.lastPathComponent.hasPrefix(".")
                         )
                     }
+                    return (activated, entries)
                 }
 
                 // readdir denied: fall back to fsgetpath enumeration.
@@ -198,7 +200,7 @@ final class FileBrowserModel: ObservableObject {
                         userInfo: [NSLocalizedDescriptionKey: "Không đọc được thư mục (quyền hoặc lease)."]
                     )
                 }
-                return names.map { fullPath in
+                let entries = names.map { fullPath in
                     let name = (fullPath as NSString).lastPathComponent
                     return FileEntry(
                         name: name,
@@ -209,14 +211,21 @@ final class FileBrowserModel: ObservableObject {
                         isHidden: name.hasPrefix(".")
                     )
                 }
+                return (activated, entries)
             }.value
 
-            entries = loaded
+            if containerRootPath.isEmpty {
+                containerRootPath = result.activated
+            }
+            if currentPath.isEmpty {
+                currentPath = result.activated
+            }
+            entries = result.entries
             phase = .ready
-            Log.debug("FileBrowser: \(path) — \(loaded.count) mục", category: .fileManager)
+            Log.debug("FileBrowser: \(currentPath) — \(result.entries.count) mục", category: .fileManager)
         } catch {
             phase = .failed(error.localizedDescription)
-            Log.error("FileBrowser: \(path) — \(error.localizedDescription)", category: .fileManager)
+            Log.error("FileBrowser: \(requestedPath) — \(error.localizedDescription)", category: .fileManager)
         }
     }
 

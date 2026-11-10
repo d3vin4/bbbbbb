@@ -53,6 +53,21 @@ final class DirectEngine {
         )
     }
 
+    /// Fast list for UI: identifiers only (one MCM enumerate call, tens of ms).
+    /// Container paths and leases resolve lazily when a container is opened.
+    func fetchApplicationsFast(limit: Int = 600) throws -> [ContainerRecord] {
+        let identifiers = BQCore.enumerateIdentifiers(
+            forClass: ContainerRecord.Kind.application.mcmClass,
+            limit: UInt(limit)
+        )
+        guard !identifiers.isEmpty else {
+            throw Self.error(from: "liệt kê ứng dụng nhanh")
+        }
+        return identifiers.map {
+            ContainerRecord(identifier: $0, kind: .application, path: "")
+        }
+    }
+
     /// Installed apps: bundle identifier + data container path.
     func fetchApplications(limit: Int = 600) throws -> [ContainerRecord] {
         let identifiers = BQCore.enumerateIdentifiers(
