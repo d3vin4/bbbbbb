@@ -39,6 +39,7 @@ final class DirectEngine {
         var mcmAvailable: Bool
         var mhaIdentity: Bool
         var appGroups: [String]
+        var route: String
 
         var isMHAReady: Bool { mcmAvailable && mhaIdentity }
     }
@@ -47,7 +48,8 @@ final class DirectEngine {
         CapabilityReport(
             mcmAvailable: BQCore.isAvailable(),
             mhaIdentity: BQCore.hasMHAIdentity(),
-            appGroups: BQCore.appGroupIdentifiers()
+            appGroups: BQCore.appGroupIdentifiers(),
+            route: BQCore.preferredRouteDescription()
         )
     }
 

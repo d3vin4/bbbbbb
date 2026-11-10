@@ -46,6 +46,12 @@ struct SettingsView: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
 
+            NavigationLink {
+                CompatibilityView()
+            } label: {
+                Label("Kiểm tra tương thích", systemImage: "checklist")
+            }
+
             Button {
                 Task { await runDiagnostics() }
             } label: {
@@ -198,6 +204,7 @@ struct SettingsView: View {
 
         let report = DirectEngine.shared.capabilityReport()
         var lines: [String] = [
+            "Route: \(report.route)",
             "MCM khả dụng: \(report.mcmAvailable ? "Có" : "Không")",
             "Identity MHA-C2: \(report.mhaIdentity ? "Đúng" : "Không đúng (cần bundle id MHA khi ký)")",
             "App Groups entitlement: \(report.appGroups.isEmpty ? "không có" : report.appGroups.joined(separator: ", "))",

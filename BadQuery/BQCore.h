@@ -23,6 +23,10 @@ NS_ASSUME_NONNULL_BEGIN
 /// Human-readable description of the most recent failure (for diagnostics).
 + (nullable NSString *)lastErrorDescription;
 
+/// Đường escape chính theo phiên bản iOS hiện tại (worse_query / bad_query / class-2)
+/// và tình trạng App Group entitlement.
++ (NSString *)preferredRouteDescription;
+
 #pragma mark - MCM direct queries (MHA-C2)
 
 /// Enumerate container identifiers for an MCM class (2 = app data, 7 = app group).
