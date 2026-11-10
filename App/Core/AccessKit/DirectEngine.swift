@@ -124,10 +124,10 @@ final class DirectEngine {
     func fetchApplicationsFromBundles(
         limit: Int = 600,
         progress: ((Int, Int) -> Void)? = nil
-    ) throws -> [(bundleID: String, name: String)] {
+    ) throws -> [(bundleID: String, name: String, icon: Data?)] {
         let directory = "/var/containers/Bundle/Application"
         let candidates = containerCandidates(in: directory)
-        var results: [(bundleID: String, name: String)] = []
+        var results: [(bundleID: String, name: String, icon: Data?)] = []
         var scanned = 0
 
         for candidate in candidates {
@@ -155,7 +155,10 @@ final class DirectEngine {
             let name = (plist["CFBundleDisplayName"] as? String)
                 ?? (plist["CFBundleName"] as? String)
                 ?? bundleID
-            results.append((bundleID, name))
+
+            // Icon đọc ngay trong lúc còn token của gói (không cần Airlift).
+            let icon = AppIconExtractor.bundleIcon(appPath: appPath, info: plist)
+            results.append((bundleID, name, icon))
         }
 
         guard !results.isEmpty else {

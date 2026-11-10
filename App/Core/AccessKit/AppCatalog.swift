@@ -150,29 +150,49 @@ final class AppCatalog: ObservableObject {
     // MARK: - Icon (tải nền theo lô, cache đĩa)
 
     private func startIconFetch() {
-        guard !isFetchingIcons, AirliftEngine.shared.hasPairing else { return }
+        guard !isFetchingIcons else { return }
         let missing = apps.map(\.bundleID).filter { icons[$0] == nil }
         guard !missing.isEmpty else { return }
 
+        if AirliftEngine.shared.hasPairing {
+            isFetchingIcons = true
+            Task {
+                var remaining = missing
+                let batchSize = 40
+                var failures = 0
+                while !remaining.isEmpty {
+                    let batch = Array(remaining.prefix(batchSize))
+                    remaining.removeFirst(batch.count)
+                    let fetched = await AirliftServices.shared.fetchIcons(bundleIDs: batch)
+                    if fetched.isEmpty {
+                        failures += 1
+                        if failures >= 2 { break }
+                        continue
+                    }
+                    failures = 0
+                    applyIcons(fetched)
+                }
+                isFetchingIcons = false
+                Log.info("AppCatalog: icon còn thiếu \(remaining.count), đã có \(icons.count)", category: .airlift)
+            }
+            return
+        }
+
+        // Không có Airlift: icon qua SPI của UIKit (1 lời gọi/app, không cần
+        // token); icon trong gói .app do bundle scan bổ sung sau.
         isFetchingIcons = true
         Task {
-            var remaining = missing
-            let batchSize = 40
-            var failures = 0
-            while !remaining.isEmpty {
-                let batch = Array(remaining.prefix(batchSize))
-                remaining.removeFirst(batch.count)
-                let fetched = await AirliftServices.shared.fetchIcons(bundleIDs: batch)
-                if fetched.isEmpty {
-                    failures += 1
-                    if failures >= 2 { break }
-                    continue
+            var filled = 0
+            for (index, bundleID) in missing.enumerated() {
+                if let image = AppIconExtractor.springBoardIcon(bundleID: bundleID) {
+                    icons[bundleID] = image
+                    persistIcon(image, for: bundleID)
+                    filled += 1
                 }
-                failures = 0
-                applyIcons(fetched)
+                if index % 25 == 0 { await Task.yield() }
             }
             isFetchingIcons = false
-            Log.info("AppCatalog: icon còn thiếu \(remaining.count), đã có \(icons.count)", category: .airlift)
+            Log.info("AppCatalog: icon SPI → \(filled)/\(missing.count)", category: .app)
         }
     }
 
@@ -275,10 +295,16 @@ final class AppCatalog: ObservableObject {
         }
     }
 
-    private func mergeBundles(_ bundles: [(bundleID: String, name: String)]) {
+    private func mergeBundles(_ bundles: [(bundleID: String, name: String, icon: Data?)]) {
         var byID: [String: CatalogApp] = [:]
         for app in apps { byID[app.bundleID] = app }
         for bundle in bundles {
+            if icons[bundle.bundleID] == nil,
+               let data = bundle.icon,
+               let image = UIImage(data: data) {
+                icons[bundle.bundleID] = image
+                persistIcon(image, for: bundle.bundleID)
+            }
             if let existing = byID[bundle.bundleID] {
                 byID[bundle.bundleID] = CatalogApp(
                     bundleID: existing.bundleID,
@@ -401,7 +427,7 @@ final class AppCatalog: ObservableObject {
         if storedVersion >= 1, apps.count >= 50 { return }
 
         Task {
-            let bundles = (try? await Task.detached { () -> [(bundleID: String, name: String)] in
+            let bundles = (try? await Task.detached { () -> [(bundleID: String, name: String, icon: Data?)] in
                 try DirectEngine.shared.fetchApplicationsFromBundles(limit: 600) { scanned, total in
                     if scanned % 20 == 0 {
                         Log.info("AppCatalog: quét bundle \(scanned)/\(total)", category: .badquery)
