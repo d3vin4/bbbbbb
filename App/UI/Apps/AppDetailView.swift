@@ -24,13 +24,11 @@ struct AppDetailView: View {
                 }
             }
 
-            Section("Thông tin") {
-                LabeledContent("Phiên bản", value: app.version.isEmpty ? "—" : app.version)
-                LabeledContent("Loại", value: app.type)
-                LabeledContent("Nguồn", value: app.source == .airlift ? "AirLift" : "Trực tiếp")
+            Section(L.t("Thông tin", "Info")) {
+                LabeledContent(L.t("Loại", "Type"), value: app.type)
                 if let path = app.path {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Container")
+                        Text(L.t("Container", "Container"))
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                         Text(path)
@@ -38,52 +36,52 @@ struct AppDetailView: View {
                             .textSelection(.enabled)
                     }
                 }
-                Button("Sao chép Bundle ID") {
+                Button(L.t("Sao chép Bundle ID", "Copy Bundle ID")) {
                     UIPasteboard.general.string = app.bundleID
                 }
             }
 
-            Section("Hành động") {
-                if app.source == .direct {
-                    NavigationLink {
-                        FileBrowserView(
-                            root: ContainerRecord(identifier: app.bundleID, kind: .application, path: app.path ?? "")
-                        )
-                    } label: {
-                        Label("Mở Container", systemImage: "folder")
-                    }
-                    NavigationLink {
-                        CleanTempView(focusBundleID: app.bundleID)
-                    } label: {
-                        Label("Dọn Temp & Cache", systemImage: "sparkles")
-                    }
-                    Button {
-                        Task { await activateContainer() }
-                    } label: {
-                        if isWorking {
-                            HStack(spacing: 8) {
-                                ProgressView()
-                                Text("Đang xử lý…")
-                            }
-                        } else {
-                            Text("Kích hoạt container (lease) và đọc thử")
-                        }
-                    }
-                    .disabled(isWorking || app.path == nil)
+            Section(L.t("Hành động", "Actions")) {
+                NavigationLink {
+                    FileBrowserView(
+                        root: ContainerRecord(identifier: app.bundleID, kind: .application, path: app.path ?? "")
+                    )
+                } label: {
+                    Label(L.t("Mở Container", "Open Container"), systemImage: "folder")
                 }
+                NavigationLink {
+                    CleanTempView(focusBundleID: app.bundleID)
+                } label: {
+                    Label(L.t("Dọn Temp & Cache", "Clean Temp & Cache"), systemImage: "sparkles")
+                }
+                Button {
+                    Task { await activateContainer() }
+                } label: {
+                    if isWorking {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text(L.t("Đang xử lý…", "Working…"))
+                        }
+                    } else {
+                        Text(L.t("Kích hoạt container và đọc thử", "Activate container and test read"))
+                    }
+                }
+                .disabled(isWorking)
 
-                if app.source == .airlift {
+                if AirliftEngine.shared.hasPairing {
                     Button(role: .destructive) {
                         Task { await uninstall() }
                     } label: {
-                        Text("Gỡ cài đặt")
+                        Text(L.t("Gỡ cài đặt", "Uninstall"))
                     }
                     .disabled(isWorking)
                 }
+            }
 
-                if let activatedPath {
+            if let activatedPath {
+                Section {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Đã kích hoạt")
+                        Text(L.t("Đã kích hoạt", "Activated"))
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                         Text(activatedPath)
@@ -91,8 +89,10 @@ struct AppDetailView: View {
                             .textSelection(.enabled)
                     }
                 }
+            }
 
-                if let localError {
+            if let localError {
+                Section {
                     Text(localError)
                         .font(.footnote)
                         .foregroundStyle(.red)
@@ -119,14 +119,13 @@ struct AppDetailView: View {
     }
 
     private func activateContainer() async {
-        guard let path = app.path else { return }
         isWorking = true
         localError = nil
         defer { isWorking = false }
 
         do {
             let result = try await Task.detached { () -> (String, Int) in
-                let record = ContainerRecord(identifier: app.bundleID, kind: .application, path: path)
+                let record = ContainerRecord(identifier: app.bundleID, kind: .application, path: app.path ?? "")
                 let activated = try DirectEngine.shared.activate(record)
                 let entries = (try? DirectEngine.shared.listDirectory(at: activated)) ?? []
                 return (activated, entries.count)

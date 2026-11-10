@@ -1,16 +1,13 @@
 import Foundation
 
-/// How bbbbbb reaches app containers and App Groups.
+/// Cách nạp **danh sách ứng dụng**. Chỉ có 2 cách.
 ///
-/// - `auto`: fastest available route — instant app list via MCM (single call),
-///   icons fetched in the background through AirLift, disk cache for relauches.
-/// - `direct`: on-device MCM queries (MHA-C2 identity) with fallback escape
-///   strategies. No pairing or tunnel required.
-/// - `airlift`: pairing-based AirLift services (RSD over the loopback tunnel,
-///   InstallationProxy / AFC / AirTraffic). Requires a pairing record.
+/// Mở container / tệp bên trong ứng dụng luôn dùng worse_query (mặc định,
+/// không đổi được) — không phụ thuộc lựa chọn này.
 enum AccessMethod: String, CaseIterable, Identifiable {
-    case auto
+    /// Đọc danh sách ngay trên máy (LaunchServices + container engine).
     case direct
+    /// Đọc danh sách qua AirLift đã pair (InstallationProxy).
     case airlift
 
     static let storageKey = "bbbbbb.accessMethod"
@@ -19,27 +16,27 @@ enum AccessMethod: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .auto: return "Tự động (nhanh nhất)"
-        case .direct: return "Trực tiếp"
+        case .direct: return L.t("Trực tiếp", "Direct")
         case .airlift: return "AirLift"
         }
     }
 
     var detail: String {
         switch self {
-        case .auto:
-            return "Tự chọn đường nhanh nhất: danh sách app tức thì qua MCM (không chờ resolve container), icon tải nền qua AirLift (nếu có pairing + tunnel), và cache để mở lại siêu nhanh."
         case .direct:
-            return "Truy vấn container trực tiếp trên máy (MHA-C2 + chiến lược dự phòng). Không cần pairing."
+            return L.t("Đọc danh sách ứng dụng ngay trên máy.", "Read the app list on-device.")
         case .airlift:
-            return "Qua pairing/AirLift (RSD, InstallationProxy, AFC/AirTraffic). Cần pairing và tunnel loopback."
+            return L.t(
+                "Đọc danh sách ứng dụng qua AirLift — cần pair thiết bị + tunnel loopback.",
+                "Read the app list over AirLift — needs pairing + loopback tunnel."
+            )
         }
     }
 
-    /// Currently selected method (shared with @AppStorage via the same key).
+    /// Lựa chọn hiện tại (chia sẻ với @AppStorage qua cùng khoá).
     static var current: AccessMethod {
         get {
-            AccessMethod(rawValue: UserDefaults.standard.string(forKey: storageKey) ?? "") ?? .auto
+            AccessMethod(rawValue: UserDefaults.standard.string(forKey: storageKey) ?? "") ?? .direct
         }
         set {
             UserDefaults.standard.set(newValue.rawValue, forKey: storageKey)

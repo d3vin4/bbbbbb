@@ -142,7 +142,7 @@ struct CleanTempView: View {
                 do {
                     return try DirectEngine.shared.fetchApplications(limit: 600)
                 } catch {
-                    return try DirectEngine.shared.fetchApplicationsViaEscapeMap(limit: 400)
+                    return try DirectEngine.shared.fetchApplicationsDeep(limit: 400)
                 }
             }.value
             model.scan(records: filteredRecords)

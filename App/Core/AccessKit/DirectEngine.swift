@@ -68,39 +68,43 @@ final class DirectEngine {
         }
     }
 
-    /// Liệt kê app bằng worse_query (class-7) + fsgetpath + đọc
-    /// MCMMetadataIdentifier — dùng khi daemon từ chối enumerate (build không
-    /// có identity MHA nhưng có App Group entitlement). Chậm hơn một lệnh MCM
-    /// nhưng là đường thật, không phải placeholder.
-    func fetchApplicationsViaEscapeMap(limit: Int = 400, progress: ((Int) -> Void)? = nil) throws -> [ContainerRecord] {
-        let applicationDirectory = "/var/mobile/Containers/Data/Application"
-        let candidates = BQCore.listDirectoryEntries(applicationDirectory, maxInode: 1_500_000)
+    /// Liệt kê ứng dụng qua worse_query (class-7) — không cần identity MHA.
+    ///
+    /// Cách làm: escape thư mục cha để đọc được danh sách container, rồi escape
+    /// từng container để đọc `MCMMetadataIdentifier` (bundle id). Token của thư
+    /// mục cha KHÔNG bao hàm quyền đọc cây con, nên mỗi container vẫn cần token
+    /// riêng — đây là đường duy nhất liệt kê được app của máy khác khi app
+    /// không mang identity MHA.
+    func fetchApplicationsDeep(limit: Int = 600, progress: ((Int, Int) -> Void)? = nil) throws -> [ContainerRecord] {
+        let directory = "/var/mobile/Containers/Data/Application"
+        let candidates = containerCandidates(in: directory)
         var records: [ContainerRecord] = []
         var scanned = 0
-
-        // Nhanh nhất: một token cho thư mục cha → đọc metadata mọi container
-        // trực tiếp, không cần MHA identity và không escape từng cái.
-        let sharedRoot = ensureRootEscape(applicationDirectory)
 
         for path in candidates {
             if records.count >= limit { break }
             scanned += 1
-            progress?(scanned)
+            progress?(scanned, candidates.count)
 
-            if sharedRoot {
-                guard let identifier = Self.containerIdentifier(at: path) else { continue }
+            // Container của chính app luôn đọc được → không cần escape.
+            if let identifier = Self.containerIdentifier(at: path) {
                 records.append(ContainerRecord(identifier: identifier, kind: .application, path: path))
                 continue
             }
 
+            // Container của app khác: cần token riêng để đọc metadata.
             let handle = BQCore.escapeTarget(path)
             guard handle >= 0 else { continue }
-            defer { BQCore.endEscape(handle) }
-
-            guard let identifier = Self.containerIdentifier(at: path) else { continue }
+            let escaped = BQCore.escapedPath(forHandle: handle) ?? path
+            let identifier = Self.containerIdentifier(at: escaped) ?? Self.containerIdentifier(at: path)
+            BQCore.endEscape(handle)
+            guard let identifier else { continue }
             records.append(ContainerRecord(identifier: identifier, kind: .application, path: path))
         }
 
+        guard !records.isEmpty else {
+            throw Self.error(from: "liệt kê ứng dụng (worse_query)")
+        }
         return records.sorted { $0.identifier.localizedCaseInsensitiveCompare($1.identifier) == .orderedAscending }
     }
 
@@ -216,31 +220,30 @@ final class DirectEngine {
         return try fetchAppGroupsViaEscapeMap(limit: limit)
     }
 
-    /// Fallback: liệt kê App Group qua fsgetpath + metadata (không cần enumerate).
+    /// Liệt kê App Group qua worse_query (class-7) — không cần enumerate.
     func fetchAppGroupsViaEscapeMap(limit: Int = 600) throws -> [ContainerRecord] {
         let groupDirectory = "/var/mobile/Containers/Shared/AppGroup"
-        let candidates = BQCore.listDirectoryEntries(groupDirectory, maxInode: 1_500_000)
+        let candidates = containerCandidates(in: groupDirectory)
         var records: [ContainerRecord] = []
-        let sharedRoot = ensureRootEscape(groupDirectory)
 
         for path in candidates {
             if records.count >= limit { break }
 
-            if sharedRoot {
-                guard let identifier = Self.containerIdentifier(at: path) else { continue }
+            if let identifier = Self.containerIdentifier(at: path) {
                 records.append(ContainerRecord(identifier: identifier, kind: .appGroup, path: path))
                 continue
             }
 
             let handle = BQCore.escapeTarget(path)
             guard handle >= 0 else { continue }
-            defer { BQCore.endEscape(handle) }
-
-            guard let identifier = Self.containerIdentifier(at: path) else { continue }
+            let escaped = BQCore.escapedPath(forHandle: handle) ?? path
+            let identifier = Self.containerIdentifier(at: escaped) ?? Self.containerIdentifier(at: path)
+            BQCore.endEscape(handle)
+            guard let identifier else { continue }
             records.append(ContainerRecord(identifier: identifier, kind: .appGroup, path: path))
         }
         guard !records.isEmpty else {
-            throw Self.error(from: "liệt kê App Group (escape-map)")
+            throw Self.error(from: "liệt kê App Group (worse_query)")
         }
         return records.sorted { $0.identifier.localizedCaseInsensitiveCompare($1.identifier) == .orderedAscending }
     }
@@ -296,98 +299,61 @@ final class DirectEngine {
         return records.sorted { $0.identifier.localizedCaseInsensitiveCompare($1.identifier) == .orderedAscending }
     }
 
-    // MARK: - Parent escape (worse_query dùng chung token, không cần bundle MHA)
+    // MARK: - Quét container (worse_query)
 
-    private let parentLock = NSLock()
-    private var parentEscapeRoots: [String] = []
-
-    /// Escape MỘT LẦN cho thư mục cha và verify đọc được thư mục con — token
-    /// sandbox cho thư mục bao trùm cây con, nên mọi container con đọc được
-    /// ngay: không cần MHA identity và không phải escape từng container.
-    private func ensureRootEscape(_ directory: String) -> Bool {
-        parentLock.lock()
-        defer { parentLock.unlock() }
-        if parentEscapeRoots.contains(directory) {
-            return true
-        }
+    /// Liệt kê các thư mục con của thư mục chứa container.
+    ///
+    /// Ưu tiên escape thư mục cha (class-7) rồi đọc thư mục — nhanh và đủ.
+    /// Nếu không được thì quét fsgetpath (chậm hơn nhiều).
+    private func containerCandidates(in directory: String) -> [String] {
         let handle = BQCore.escapeTarget(directory)
-        guard handle >= 0 else { return false }
-        if Self.verifySubtreeAccess(directory) {
-            parentEscapeRoots.append(directory)
-            Log.info("Direct: parent escape OK — \(directory) (một token cho toàn bộ cây con)", category: .badquery)
-            return true
+        if handle >= 0 {
+            defer { BQCore.endEscape(handle) }
+            let entries = (try? FileManager.default.contentsOfDirectory(atPath: directory)) ?? []
+            let paths = entries
+                .filter { !$0.hasPrefix(".") }
+                .map { (directory as NSString).appendingPathComponent($0) }
+            if !paths.isEmpty {
+                Log.info("Direct: parent escape → \(paths.count) container trong \(directory)", category: .badquery)
+                return paths
+            }
         }
-        BQCore.endEscape(handle)
-        return false
+
+        let scanned = BQCore.listDirectoryEntries(directory, maxInode: 1_500_000)
+        Log.info("Direct: fsgetpath → \(scanned.count) container trong \(directory)", category: .badquery)
+        return scanned
     }
 
-    /// Nếu target nằm trong một root đã escape (hoặc escape được cha của nó), trả root đó.
-    private func escapeRootContaining(_ target: String) -> String? {
-        parentLock.lock()
-        let known = parentEscapeRoots
-        parentLock.unlock()
-        for root in known where target == root || target.hasPrefix(root + "/") {
-            return root
+    /// Tìm đường dẫn container của một bundle id (dùng khi danh sách chưa có path).
+    func resolveContainerPath(identifier: String, kind: ContainerRecord.Kind) -> String? {
+        if let path = try? BQCore.containerPath(
+            forClass: kind.mcmClass,
+            identifier: identifier,
+            group: kind == .appGroup
+        ), !path.isEmpty {
+            return path
         }
 
-        for candidate in Self.ancestorDirectories(of: target, depth: 4) {
-            if ensureRootEscape(candidate) {
-                return candidate
-            }
+        let directory = kind == .appGroup
+            ? "/var/mobile/Containers/Shared/AppGroup"
+            : "/var/mobile/Containers/Data/Application"
+
+        for path in containerCandidates(in: directory) {
+            let handle = BQCore.escapeTarget(path)
+            guard handle >= 0 else { continue }
+            let escaped = BQCore.escapedPath(forHandle: handle) ?? path
+            let found = Self.containerIdentifier(at: escaped) ?? Self.containerIdentifier(at: path)
+            BQCore.endEscape(handle)
+            if found == identifier { return path }
         }
         return nil
     }
 
-    private static func ancestorDirectories(of target: String, depth: Int) -> [String] {
-        var result: [String] = []
-        var current = (target as NSString).deletingLastPathComponent
-        while current.count > 1, result.count < depth {
-            result.append(current)
-            let next = (current as NSString).deletingLastPathComponent
-            if next == current { break }
-            current = next
-        }
-        return result
-    }
-
-    /// Verify token thư mục cha thực sự đọc được cây con (thử vài mục con).
-    private static func verifySubtreeAccess(_ parent: String) -> Bool {
-        let fileManager = FileManager.default
-        guard let children = try? fileManager.contentsOfDirectory(atPath: parent) else {
-            return false
-        }
-        if children.isEmpty { return true }
-
-        var probed = 0
-        for child in children where !child.hasPrefix(".") {
-            let path = (parent as NSString).appendingPathComponent(child)
-            var isDirectory: ObjCBool = false
-            guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory) else { continue }
-            if isDirectory.boolValue {
-                if (try? fileManager.contentsOfDirectory(atPath: path)) != nil { return true }
-            } else if (try? Data(contentsOf: URL(fileURLWithPath: path), options: .mappedIfSafe)) != nil {
-                return true
-            } else if fileManager.isReadableFile(atPath: path) {
-                return true
-            }
-            probed += 1
-            if probed >= 3 { break }
-        }
-        return false
-    }
-
-    /// Đọc bundle/group identifier từ metadata plist của container.
+    /// Đọc bundle/group identifier của container: xattr → map containermanager
+    /// → metadata plist (làm trong BQCore; metadata plist thường root-only nên
+    /// chỉ là chốt cuối).
     private static func containerIdentifier(at path: String) -> String? {
-        let metadataPath = (path as NSString)
-            .appendingPathComponent(".com.apple.mobile_container_manager.metadata.plist")
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: metadataPath)),
-              let plistObject = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
-              let plist = plistObject as? [String: Any],
-              let identifier = plist["MCMMetadataIdentifier"] as? String,
-              !identifier.isEmpty else {
-            return nil
-        }
-        return identifier
+        BQCore.containerIdentifier(atPath: path)
     }
 
     private let cacheLock = NSLock()
@@ -420,17 +386,16 @@ final class DirectEngine {
                 group: record.kind == .appGroup
             )) ?? ""
         }
+        if target.isEmpty {
+            // Chưa biết đường dẫn container → tìm bằng cách quét container.
+            target = resolveContainerPath(identifier: record.identifier, kind: record.kind) ?? ""
+        }
         guard !target.isEmpty else {
             throw Self.error(from: "kích hoạt \(record.identifier)")
         }
 
-        // worse_query: ưu tiên token dùng chung cho thư mục cha (không cần
-        // bundle MHA, không phải escape lại từng container).
-        if escapeRootContaining(target) != nil {
-            store(cachedPath: target, for: record.id)
-            return target
-        }
-
+        // Token riêng cho container này (class-7) — giữ nguyên để đọc được
+        // cây thư mục khi duyệt tệp.
         let handle = BQCore.escapeTarget(target)
         guard handle >= 0 else {
             throw Self.error(from: "escape \(record.identifier)")

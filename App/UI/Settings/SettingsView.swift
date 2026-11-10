@@ -1,261 +1,153 @@
 import SwiftUI
 
+/// Cài đặt chia theo nhóm rõ ràng: Truy cập · Dữ liệu · Giao diện ·
+/// Trình duyệt tệp · Về app.
 struct SettingsView: View {
-    @EnvironmentObject private var store: LogStore
-    @ObservedObject private var tunnel = TunnelManager.shared
-    @ObservedObject private var pairing = PairingController.shared
-
-    @AppStorage(AccessMethod.storageKey) private var accessMethod: AccessMethod = .direct
-    @AppStorage("bbbbbb.vpnAutoConnect") private var vpnAutoConnect = true
+    @AppStorage(AccessMethod.storageKey) private var accessMethod: AccessMethod = .auto
+    @AppStorage(AppLanguage.storageKey) private var language: AppLanguage = .english
     @AppStorage("bbbbbb.files.viewMode") private var filesViewMode = "list"
     @AppStorage(FileBrowserModel.showHiddenKey) private var filesShowHidden = false
     @AppStorage(FileBrowserModel.showExtensionsKey) private var filesShowExtensions = false
     @AppStorage(FileBrowserModel.sortKeyKey) private var filesSortKeyRaw = FileSortKey.name.rawValue
     @AppStorage(FileBrowserModel.sortAscendingKey) private var filesSortAscending = true
-    @State private var probeLines: [String] = []
-    @State private var isProbing = false
-    @State private var isBrowsingAirlift = false
-    @State private var airliftApps: [AirliftAppInfo] = []
+
+    @ObservedObject private var tunnel = TunnelManager.shared
+    @ObservedObject private var pairing = PairingController.shared
+
+    @State private var isShowingSetup = false
+    @State private var isShowingInstall = false
 
     var body: some View {
         List {
             accessSection
-            vpnSection
-            pairingSection
-            filesSection
-            logsSection
-            versionSection
+            dataSection
+            interfaceSection
+            browserSection
+            aboutSection
         }
-        .navigationTitle("Settings")
+        .navigationTitle(L.t("Cài đặt", "Settings"))
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $isShowingSetup) {
+            OnboardingView(isReview: true)
+        }
+        .sheet(isPresented: $isShowingInstall) {
+            InstallIPAView()
+        }
         .task {
             await tunnel.load()
         }
     }
 
-    // MARK: - Sections
+    // MARK: - Truy cập
 
     private var accessSection: some View {
-        Section("Cơ chế truy cập") {
-            Picker("Phương thức", selection: $accessMethod) {
+        Section {
+            Picker(L.t("Nguồn danh sách app", "App list source"), selection: $accessMethod) {
                 ForEach(AccessMethod.allCases) { method in
                     Text(method.title).tag(method)
                 }
             }
-            Text(accessMethod.detail)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+            .pickerStyle(.menu)
 
-            NavigationLink {
-                CompatibilityView()
-            } label: {
-                Label("Kiểm tra tương thích", systemImage: "checklist")
-            }
+            LabeledContent(L.t("Container engine", "Container engine"), value: BQCore.routeSummary())
 
-            Button {
-                Task { await runDiagnostics() }
-            } label: {
-                if isProbing {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                        Text("Đang kiểm tra…")
-                    }
-                } else {
-                    Text("Chạy chẩn đoán trực tiếp")
-                }
-            }
-            .disabled(isProbing)
+            Text(L.t(
+                "Container của ứng dụng luôn mở bằng worse_query (mặc định, không cần chỉnh).",
+                "App containers always open with worse_query (default, nothing to configure)."
+            ))
+            .font(.footnote)
+            .foregroundStyle(.secondary)
 
-            ForEach(probeLines, id: \.self) { line in
-                Text(line)
-                    .font(.footnote.monospaced())
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private var vpnSection: some View {
-        Section("VPN / Tunnel loopback") {
-            LabeledContent("Trạng thái") {
-                Text(tunnel.statusDescription)
-                    .foregroundStyle(tunnel.isConnected ? Color.green : Color.secondary)
-            }
-            LabeledContent("Dịch vụ 10.7.0.1:49152") {
-                Text(tunnel.serviceReachable ? "Phản hồi" : "Chưa phản hồi")
-                    .foregroundStyle(tunnel.serviceReachable ? Color.green : Color.secondary)
-            }
-            Button("Kiểm tra kết nối") {
-                Task { await tunnel.refreshReachability() }
-            }
-            .disabled(!tunnel.isConnected)
-            if let error = tunnel.lastError {
-                Text(error)
-                    .font(.footnote)
-                    .foregroundStyle(.red)
-            }
-            HStack {
-                Button("Kết nối") {
-                    Task { await tunnel.connect() }
+            if accessMethod == .airlift {
+                LabeledContent(L.t("Pairing", "Pairing")) {
+                    Text(pairing.hasPairingFile ? L.t("Đã pair", "Paired") : L.t("Chưa pair", "Not paired"))
+                        .foregroundStyle(.secondary)
                 }
-                .disabled(tunnel.isConnected || tunnel.isBusy)
-                Button("Ngắt") {
-                    tunnel.disconnect()
-                }
-                .disabled(!tunnel.isConnected && !tunnel.isBusy)
-            }
-            Toggle("Tự động bật khi mở app", isOn: $vpnAutoConnect)
-            Text("Tunnel loopback (10.7.0.1) cho phép ứng dụng kết nối tới dịch vụ hệ thống mà không cần cài LocalDevVPN riêng. Khi sideload, cần ký kèm entitlement NetworkExtension.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var pairingSection: some View {
-        Section("Pairing (AirLift)") {
-            LabeledContent("Trạng thái") {
-                Text(pairing.running ? pairing.pairingStatus : (pairing.hasPairingFile ? "Đã pair" : "Chưa pair"))
-                    .foregroundStyle(.secondary)
-            }
-            if let pin = pairing.pairingPIN {
-                Text("PIN: \(pin)")
-                    .font(.title2.monospaced().bold())
-            }
-            if pairing.running {
-                Button("Huỷ pairing") {
-                    pairing.softCancel()
-                }
-            } else {
-                Button("Pair trực tiếp trên iPhone") {
-                    Task {
-                        do {
-                            _ = try await pairing.startAndWait()
-                        } catch {
-                            Log.error("Pairing lỗi: \(error.localizedDescription)", category: .pairing)
-                        }
-                    }
-                }
-            }
-            Text("Mở Settings ▸ Privacy & Security ▸ Developer Mode ▸ Pair with bbbbbb và nhập PIN ở trên (PIN cũng hiển thị trên Live Activity).")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-            if pairing.hasPairingFile {
-                Button(role: .destructive) {
-                    PairingController.deletePairingFile()
-                } label: {
-                    Text("Xoá file pairing")
+                LabeledContent(L.t("Tunnel", "Tunnel")) {
+                    Text(tunnel.statusDescription)
+                        .foregroundStyle(tunnel.isConnected ? Color.green : Color.secondary)
                 }
                 Button {
-                    Task { await browseAirliftApps() }
+                    isShowingSetup = true
                 } label: {
-                    if isBrowsingAirlift {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                            Text("Đang liệt kê qua AirLift…")
-                        }
-                    } else {
-                        Text("Liệt kê ứng dụng qua AirLift")
-                    }
-                }
-                .disabled(isBrowsingAirlift)
-                if !airliftApps.isEmpty {
-                    Text("AirLift: \(airliftApps.count) ứng dụng")
-                    ForEach(airliftApps.prefix(6)) { app in
-                        Text("• \(app.name) — \(app.bundleID)")
-                            .font(.footnote.monospaced())
-                            .foregroundStyle(.secondary)
-                    }
+                    Label(L.t("Hướng dẫn thiết lập", "Setup guide"), systemImage: "list.number")
                 }
             }
+        } header: {
+            Label(L.t("Truy cập", "Access"), systemImage: "lock.shield")
         }
     }
 
-    private var filesSection: some View {
-        Section("File Manager") {
-            Picker("Kiểu xem", selection: $filesViewMode) {
-                Text("Danh sách").tag("list")
-                Text("Lưới").tag("grid")
+    // MARK: - Dữ liệu
+
+    private var dataSection: some View {
+        Section {
+            NavigationLink {
+                AppGroupsView()
+            } label: {
+                Label("App Groups", systemImage: "rectangle.3.group")
             }
-            Toggle("Hiện file ẩn", isOn: $filesShowHidden)
-            Toggle("Hiện phần mở rộng", isOn: $filesShowExtensions)
-            Picker("Sắp xếp mặc định", selection: $filesSortKeyRaw) {
+            NavigationLink {
+                FavoritesView()
+            } label: {
+                Label(L.t("Yêu thích & Gần đây", "Favorites & Recents"), systemImage: "star")
+            }
+            Button {
+                isShowingInstall = true
+            } label: {
+                Label(L.t("Cài ứng dụng (.ipa)", "Install app (.ipa)"), systemImage: "square.and.arrow.down")
+            }
+        } header: {
+            Label(L.t("Dữ liệu", "Data"), systemImage: "internaldrive")
+        }
+    }
+
+    // MARK: - Giao diện
+
+    private var interfaceSection: some View {
+        Section {
+            Picker(L.t("Ngôn ngữ", "Language"), selection: $language) {
+                ForEach(AppLanguage.allCases) { option in
+                    Text(option.title).tag(option)
+                }
+            }
+            .pickerStyle(.menu)
+        } header: {
+            Label(L.t("Giao diện", "Interface"), systemImage: "globe")
+        }
+    }
+
+    // MARK: - Trình duyệt tệp
+
+    private var browserSection: some View {
+        Section {
+            Picker(L.t("Kiểu xem", "View"), selection: $filesViewMode) {
+                Text(L.t("Danh sách", "List")).tag("list")
+                Text(L.t("Lưới", "Grid")).tag("grid")
+            }
+            .pickerStyle(.menu)
+            Toggle(L.t("Hiện file ẩn", "Show hidden files"), isOn: $filesShowHidden)
+            Toggle(L.t("Hiện phần mở rộng", "Show extensions"), isOn: $filesShowExtensions)
+            Picker(L.t("Sắp xếp mặc định", "Default sort"), selection: $filesSortKeyRaw) {
                 ForEach(FileSortKey.allCases) { key in
                     Text(key.title).tag(key.rawValue)
                 }
             }
-            Toggle("Sắp xếp tăng dần", isOn: $filesSortAscending)
+            .pickerStyle(.menu)
+            Toggle(L.t("Sắp xếp tăng dần", "Sort ascending"), isOn: $filesSortAscending)
+        } header: {
+            Label(L.t("Trình duyệt tệp", "File browser"), systemImage: "folder")
         }
     }
 
-    private var logsSection: some View {
-        Section("Logs") {
-            LabeledContent("Số bản ghi", value: "\(store.entries.count)")
-            Button(role: .destructive) {
-                store.clear()
-            } label: {
-                Text("Xóa toàn bộ logs")
-            }
-        }
-    }
+    // MARK: - Về app
 
-    private var versionSection: some View {
-        Section("Phiên bản") {
-            LabeledContent("Ứng dụng", value: Bundle.main.appVersion)
+    private var aboutSection: some View {
+        Section {
+            LabeledContent(L.t("Ứng dụng", "App"), value: Bundle.main.appVersion)
             LabeledContent("Bundle ID", value: Bundle.main.bundleIdentifier ?? "—")
-        }
-    }
-
-    // MARK: - Diagnostics
-
-    private func runDiagnostics() async {
-        isProbing = true
-        defer { isProbing = false }
-
-        let report = DirectEngine.shared.capabilityReport()
-        var lines: [String] = [
-            "Route: \(report.route)",
-            "MCM khả dụng: \(report.mcmAvailable ? "Có" : "Không")",
-            "Identity MHA-C2: \(report.mhaIdentity ? "Đúng" : "Không đúng (cần bundle id MHA khi ký)")",
-            "App Groups entitlement: \(report.appGroups.isEmpty ? "không có" : report.appGroups.joined(separator: ", "))",
-        ]
-
-        if report.isMHAReady {
-            do {
-                let apps = try DirectEngine.shared.fetchApplications(limit: 400)
-                lines.append("Ứng dụng tìm thấy: \(apps.count)")
-                for app in apps.prefix(4) {
-                    lines.append("• \(app.identifier)")
-                }
-            } catch {
-                lines.append("Liệt kê ứng dụng lỗi: \(error.localizedDescription)")
-            }
-            do {
-                let groups = try DirectEngine.shared.fetchAppGroups(limit: 400)
-                lines.append("App Group tìm thấy: \(groups.count)")
-            } catch {
-                lines.append("Liệt kê App Group lỗi: \(error.localizedDescription)")
-            }
-        }
-
-        if let lastError = BQCore.lastErrorDescription() {
-            lines.append("Lỗi gần nhất: \(lastError)")
-        }
-
-        probeLines = lines
-        for line in lines {
-            Log.info("[chẩn đoán] \(line)", category: .badquery)
-        }
-    }
-
-    private func browseAirliftApps() async {
-        isBrowsingAirlift = true
-        defer { isBrowsingAirlift = false }
-        do {
-            let apps = try await AirliftServices.shared.browseApplications()
-            airliftApps = apps
-            Log.info("AirLift browse: \(apps.count) ứng dụng", category: .airlift)
-        } catch {
-            airliftApps = []
-            Log.error("AirLift browse lỗi: \(error.localizedDescription)", category: .airlift)
+        } header: {
+            Label(L.t("Về bbbbbb", "About"), systemImage: "info.circle")
         }
     }
 }

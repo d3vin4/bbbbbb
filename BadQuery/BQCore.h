@@ -9,6 +9,12 @@ NS_ASSUME_NONNULL_BEGIN
 /// following the public FilzaSlop / 3105 technique. Fallback strategies follow
 /// the KAMUI (MIT) technique set: class-13 traversal, class-12 geod,
 /// class-7 app-group part-directory symlink, class-2 swap/stage.
+///
+/// Hardening ideas (path normalisation, flag memory, xattr identifier,
+/// containermanager path→identifier map, bounded token set) are informed by
+/// the public WQ Files project (kolbicz/WQFiles, GPL-3.0-or-later) and the
+/// worse_query technique by Taj C (forcequitOS, GPL-3.0-or-later);
+/// this file is an independent implementation, not a copy.
 @interface BQCore : NSObject
 
 /// YES when libsystem_containermanager.dylib exposes everything required.
@@ -26,6 +32,13 @@ NS_ASSUME_NONNULL_BEGIN
 /// Đường escape chính theo phiên bản iOS hiện tại (worse_query / bad_query / class-2)
 /// và tình trạng App Group entitlement.
 + (NSString *)preferredRouteDescription;
+
+/// Tóm tắt đường truy cập hiện tại, 1 từ (ví dụ: "MHA-C2", "worse_query").
++ (NSString *)routeSummary;
+
+/// Identifier (bundle/group id) của container tại `path` — đọc qua xattr,
+/// map của containermanager, rồi metadata plist. nil khi không đọc được.
++ (nullable NSString *)containerIdentifierAtPath:(NSString *)path;
 
 #pragma mark - MCM direct queries (MHA-C2)
 

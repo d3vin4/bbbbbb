@@ -6,30 +6,29 @@ struct bbbbbbApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootTabView()
+            RootView()
                 .environmentObject(logStore)
         }
     }
 }
 
-struct RootTabView: View {
+/// Điểm vào: lần đầu mở → màn thiết lập, sau đó → danh sách ứng dụng.
+struct RootView: View {
+    @AppStorage(onboardingCompletedKey) private var hasCompletedSetup = false
     @State private var didLogLaunch = false
 
     var body: some View {
-        TabView {
-            AppsView()
-                .tabItem {
-                    Label("Apps", systemImage: "square.grid.2x2")
-                }
-            LogsView()
-                .tabItem {
-                    Label("Logs", systemImage: "list.bullet.rectangle")
-                }
+        Group {
+            if hasCompletedSetup {
+                AppsView()
+            } else {
+                OnboardingView()
+            }
         }
+        .environment(\.locale, AppLanguage.current.locale)
         .task {
             guard !didLogLaunch else { return }
             didLogLaunch = true
-            AirliftEngine.shared.prepare()
             Log.info(
                 "bbbbbb khởi động — iOS \(SupportMatrix.currentOSVersion) (hỗ trợ \(SupportMatrix.supportSummary))",
                 category: .app
