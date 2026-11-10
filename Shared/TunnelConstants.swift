@@ -3,7 +3,7 @@ import Foundation
 /// Constants shared by the app and the embedded PacketTunnel extension.
 enum TunnelConstants {
     /// Canonical identity used by the MHA-C2 direct container workflow
-    /// (same approach as 3105 / FilzaSlop). The build may override
+    /// (same approach as FilzaSlop). The build may override
     /// PRODUCT_BUNDLE_IDENTIFIER (e.g. the “lite” variant for parallel
     /// installs); the daemon decides what it accepts.
     static let canonicalAppBundleIdentifier = "com.apple.mobile.MobileHouseArrest"

@@ -12,6 +12,9 @@ settings:
     SUPPORTS_MACCATALYST: false
     MARKETING_VERSION: "1.0.0"
     CURRENT_PROJECT_VERSION: "1"
+    # Mặc định = identity MHA. Đặt BBBBBB_BUNDLE_ID=com.d3vin4.bbbbbb
+    # khi build để cài song song với app khác đang giữ bundle MHA.
+    BBBBBB_BUNDLE_ID: com.apple.mobile.MobileHouseArrest
 packages:
   ZIPFoundation:
     url: https://github.com/weichsel/ZIPFoundation.git
@@ -28,9 +31,9 @@ targets:
     settings:
       base:
         # Identity required by the MHA-C2 direct container workflow
-        # (same approach as 3105 / FilzaSlop). The Direct access method
+        # (same approach as FilzaSlop). The Direct access method
         # degrades to the fallback strategies without it.
-        PRODUCT_BUNDLE_IDENTIFIER: com.apple.mobile.MobileHouseArrest
+        PRODUCT_BUNDLE_IDENTIFIER: $(BBBBBB_BUNDLE_ID)
         PRODUCT_NAME: bbbbbb
         INFOPLIST_FILE: App/Info.plist
         SWIFT_OBJC_BRIDGING_HEADER: App/bbbbbb-Bridging-Header.h
@@ -58,7 +61,7 @@ targets:
       - path: Shared
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.apple.mobile.MobileHouseArrest.PairingActivity
+        PRODUCT_BUNDLE_IDENTIFIER: $(BBBBBB_BUNDLE_ID).PairingActivity
         PRODUCT_NAME: PairingActivity
         INFOPLIST_FILE: Widgets/Info.plist
         APPLICATION_EXTENSION_API_ONLY: true
@@ -71,7 +74,7 @@ targets:
       - path: Shared
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.apple.mobile.MobileHouseArrest.PacketTunnel
+        PRODUCT_BUNDLE_IDENTIFIER: $(BBBBBB_BUNDLE_ID).PacketTunnel
         PRODUCT_NAME: PacketTunnel
         INFOPLIST_FILE: Tunnel/Info.plist
         APPLICATION_EXTENSION_API_ONLY: true

@@ -492,7 +492,7 @@ final class AirliftServices {
         var adapter: OpaquePointer?
         var handshake: OpaquePointer?
 
-        // 1. RemoteXPC route (proven order from AirCard-iOS / 3105).
+        // 1. RemoteXPC route (proven order from AirCard-iOS).
         var status = withSockaddr { address, length in
             hostname.withCString { hostnameC in
                 tunnel_create_remotexpc_multihost(

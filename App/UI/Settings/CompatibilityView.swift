@@ -46,14 +46,17 @@ struct CompatibilityView: View {
                 }
             }
 
-            Section("Cài 3105 + bbbbbb cùng máy") {
-                Text("• iOS chỉ cho 1 app mỗi bundle id — hai app cùng id không thể cùng tồn tại (cài app sau sẽ ghi đè app trước; \"Duplicate App\" chỉ dành cho app App Store). MHA-C2 lại đòi bundle id = com.apple.mobile.MobileHouseArrest cho chính app đang chạy, nên cả hai không thể cùng có MHA-C2 trên một máy.")
+            Section("Cài song song với app khác") {
+                Text("• Pre-release có 2 IPA: bbbbbb.ipa (bundle com.apple.mobile.MobileHouseArrest — MHA-C2 đầy đủ) và bbbbbb-own.ipa (bundle com.d3vin4.bbbbbb — dùng để cài song song khi có app khác đang giữ bundle MHA; khi ký nhớ giữ App Group entitlement).")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                Text("• Khuyến nghị chạy song song: để 3105 giữ bundle MHA; ký bbbbbb với id riêng (miễn có App Group entitlement). bbbbbb vẫn đầy đủ chức năng nhờ parent-escape của worse_query — Logs sẽ hiện “parent escape OK”. Hoặc ngược lại: bbbbbb giữ MHA, 3105 đổi id và dùng route worse_query của chính nó.")
+                Text("• iOS chỉ cho 1 app mỗi bundle id — hai app cùng id không thể cùng tồn tại (cài app sau sẽ ghi đè app trước; \"Duplicate App\" chỉ dành cho app App Store). Vì MHA-C2 đòi bundle id = com.apple.mobile.MobileHouseArrest cho chính app đang chạy, hai app không thể cùng có MHA-C2 trên một máy.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                Text("• Nếu chấp nhận luân phiên (được giữ dữ liệu): cài bbbbbb đè lên 3105 với cùng bundle id + cùng chứng chỉ = nâng cấp giữ nguyên container; cài lại 3105 để quay về.")
+                Text("• Khuyến nghị chạy song song: app kia giữ bundle MHA, dùng bbbbbb-own.ipa với id riêng (miễn có App Group entitlement) — bbbbbb vẫn đầy đủ chức năng nhờ parent-escape của worse_query (Logs hiện “parent escape OK”).")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Text("• Nếu chấp nhận luân phiên (giữ nguyên dữ liệu): cài bbbbbb đè lên app cùng bundle id + cùng chứng chỉ = nâng cấp giữ container; cài lại app cũ để quay về.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }

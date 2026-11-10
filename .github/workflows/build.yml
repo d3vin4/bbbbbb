@@ -31,19 +31,29 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
-      - name: Build unsigned IPA
+      - name: Build unsigned IPA (MHA identity)
         env:
           BUILD_NUMBER: ${{ github.run_number }}
           MARKETING_VERSION: "1.0.0"
         run: bash Scripts/build-ipa.sh
 
-      - name: Upload build artifact
+      - name: Build unsigned IPA (own bundle id — cài song song)
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+          MARKETING_VERSION: "1.0.0"
+          BBBBBB_BUNDLE_ID: com.d3vin4.bbbbbb
+          IPA_NAME: bbbbbb-own
+        run: bash Scripts/build-ipa.sh
+
+      - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: bbbbbb-build-${{ github.run_number }}
           path: |
             bbbbbb.ipa
             bbbbbb.ipa.sha256
+            bbbbbb-own.ipa
+            bbbbbb-own.ipa.sha256
           retention-days: 90
 
       - name: Publish GitHub pre-release
@@ -52,7 +62,12 @@ jobs:
         run: |
           TAG="build-${{ github.run_number }}"
           gh release delete "$TAG" --yes --cleanup-tag >/dev/null 2>&1 || true
-          gh release create "$TAG" bbbbbb.ipa bbbbbb.ipa.sha256 \
+          gh release create "$TAG" \
+            bbbbbb.ipa bbbbbb.ipa.sha256 \
+            bbbbbb-own.ipa bbbbbb-own.ipa.sha256 \
             --prerelease \
             --title "bbbbbb $TAG (unsigned)" \
-            --notes "Unsigned IPA — build #${{ github.run_number }} from commit ${{ github.sha }}. Re-sign before installing (eSign / SideStore / AltStore)."
+            --notes "Unsigned IPAs — build #${{ github.run_number }} from commit ${{ github.sha }}.
+          bbbbbb.ipa = bundle com.apple.mobile.MobileHouseArrest (MHA-C2 đầy đủ; dùng khi không cài app khác cùng bundle MHA).
+          bbbbbb-own.ipa = bundle com.d3vin4.bbbbbb (cài song song app khác đang giữ bundle MHA; container access qua parent-escape worse_query — nhớ ký kèm App Group entitlement).
+          Re-sign before installing (eSign / SideStore / AltStore)."
