@@ -46,6 +46,18 @@ struct CompatibilityView: View {
                 }
             }
 
+            Section("Cài 3105 + bbbbbb cùng máy") {
+                Text("• iOS chỉ cho 1 app mỗi bundle id — hai app cùng id không thể cùng tồn tại (cài app sau sẽ ghi đè app trước; \"Duplicate App\" chỉ dành cho app App Store). MHA-C2 lại đòi bundle id = com.apple.mobile.MobileHouseArrest cho chính app đang chạy, nên cả hai không thể cùng có MHA-C2 trên một máy.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Text("• Khuyến nghị chạy song song: để 3105 giữ bundle MHA; ký bbbbbb với id riêng (miễn có App Group entitlement). bbbbbb vẫn đầy đủ chức năng nhờ parent-escape của worse_query — Logs sẽ hiện “parent escape OK”. Hoặc ngược lại: bbbbbb giữ MHA, 3105 đổi id và dùng route worse_query của chính nó.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Text("• Nếu chấp nhận luân phiên (được giữ dữ liệu): cài bbbbbb đè lên 3105 với cùng bundle id + cùng chứng chỉ = nâng cấp giữ nguyên container; cài lại 3105 để quay về.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
             Section {
                 Text("Dải đã xác minh — worse_query: 26.0–26.7.2 & 27.0–27.2 (đường chính cho App Group/container, flags khác nhau giữa 26.x và 27.x) · bad_query: 26.0–26.6.1 / 27.0b4 (dự phòng khi thiếu App Group) · airlift/AirTraffic: bị Apple vá từ 27.2 beta 3 · pairing trong Settings: cần iOS 27+.")
                     .font(.footnote)
