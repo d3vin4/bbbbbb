@@ -109,7 +109,7 @@ final class PairingController: ObservableObject {
         Log.info("Bắt đầu pairing host (RPPairing)", category: .pairing)
 
         Task {
-            _ = await localNetwork.request()
+            _ = await localNetwork.request(timeout: 0.8)
             guard running else { return }
 
             keepAlive.startAudio()

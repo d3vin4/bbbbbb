@@ -80,6 +80,14 @@ struct SettingsView: View {
                 Text(tunnel.statusDescription)
                     .foregroundStyle(tunnel.isConnected ? Color.green : Color.secondary)
             }
+            LabeledContent("Dịch vụ 10.7.0.1:49152") {
+                Text(tunnel.serviceReachable ? "Phản hồi" : "Chưa phản hồi")
+                    .foregroundStyle(tunnel.serviceReachable ? Color.green : Color.secondary)
+            }
+            Button("Kiểm tra kết nối") {
+                Task { await tunnel.refreshReachability() }
+            }
+            .disabled(!tunnel.isConnected)
             if let error = tunnel.lastError {
                 Text(error)
                     .font(.footnote)

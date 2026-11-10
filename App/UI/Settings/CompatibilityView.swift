@@ -61,6 +61,7 @@ struct CompatibilityView: View {
             }
         }
         .task {
+            await tunnel.refreshReachability()
             runChecks()
         }
     }
@@ -114,9 +115,9 @@ struct CompatibilityView: View {
             title: "Trực tiếp — MCM / MHA-C2",
             status: report.mcmAvailable ? (report.mhaIdentity ? .ok : .warning) : .fail,
             detail: report.mhaIdentity
-                ? "MCM khả dụng, bundle id MHA đúng."
+                ? "MCM khả dụng, identity MHA đúng (cả CFBundleIdentifier lẫn CodeDirectory identifier)."
                 : (report.mcmAvailable
-                    ? "MCM khả dụng nhưng bundle id chưa phải MHA — cần ký với identity com.apple.mobile.MobileHouseArrest."
+                    ? "MCM khả dụng nhưng app không mang identity MHA (cần CẢ hai identifier = com.apple.mobile.MobileHouseArrest khi ký; một máy chỉ cài được 1 app với id này). Engine tự dùng worse_query class-7 / class-13 / class-2."
                     : "Không nạp được libsystem_containermanager.")
         ))
         result.append(Check(
@@ -204,9 +205,11 @@ struct CompatibilityView: View {
         // 8. Tunnel
         result.append(Check(
             title: "Tunnel loopback",
-            status: tunnel.isConnected ? .ok : .warning,
+            status: tunnel.isConnected ? (tunnel.serviceReachable ? .ok : .warning) : .warning,
             detail: tunnel.isConnected
-                ? "Đang kết nối (10.7.0.1)."
+                ? (tunnel.serviceReachable
+                    ? "Đang kết nối, dịch vụ 10.7.0.1:49152 phản hồi."
+                    : "Đã kết nối nhưng 10.7.0.1:49152 chưa phản hồi — bấm “Kiểm tra kết nối” trong Settings ▸ VPN rồi Quét lại.")
                 : "Chưa kết nối — bật trong Settings ▸ VPN (cần entitlement NetworkExtension khi ký)."
         ))
 

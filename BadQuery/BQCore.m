@@ -774,8 +774,9 @@ static int64_t BQEscapeClass2Stage(NSString *target) {
                              identifier:(NSString *)identifier
                                   group:(BOOL)group {
     if (![self hasMHAIdentity]) {
-        BQSetLastError(@"bundle identity is not com.apple.mobile.MobileHouseArrest");
-        return nil;
+        // Soft gate: the daemon is the real authority. Attempt anyway so builds
+        // with variant bundle ids can be tested; the daemon error is reported.
+        BQLog(@"activate: bundle id không phải MHA — vẫn thử (daemon quyết định)");
     }
     if (![self isAvailable] || !identifier.length) {
         BQSetLastError(@"MCM unavailable or empty identifier");

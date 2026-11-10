@@ -64,8 +64,8 @@ struct AppGroupsView: View {
         defer { isLoading = false }
 
         let report = DirectEngine.shared.capabilityReport()
-        guard report.mcmAvailable && report.mhaIdentity else {
-            errorMessage = "Cần engine Trực tiếp (MHA-C2): MCM \(report.mcmAvailable ? "OK" : "thiếu"), identity \(report.mhaIdentity ? "đúng" : "chưa đúng")."
+        guard report.mcmAvailable else {
+            errorMessage = "Cần engine Trực tiếp: MCM \(report.mcmAvailable ? "OK" : "thiếu") · identity \(report.mhaIdentity ? "MHA đúng" : "chưa phải MHA (vẫn thử)")."
             return
         }
         do {

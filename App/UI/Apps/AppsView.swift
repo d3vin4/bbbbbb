@@ -15,6 +15,16 @@ struct AppsView: View {
                         Text(tunnel.statusDescription)
                             .foregroundStyle(tunnel.isConnected ? Color.green : Color.secondary)
                     }
+                    LabeledContent("Dịch vụ 10.7.0.1:49152") {
+                        Text(tunnel.serviceReachable ? "Phản hồi" : "Chưa phản hồi")
+                            .foregroundStyle(tunnel.serviceReachable ? Color.green : Color.secondary)
+                    }
+                    if let externalTunnel = tunnel.externalTunnel {
+                        LabeledContent("Tunnel ngoài") {
+                            Text(externalTunnel)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                     LabeledContent("Cơ chế truy cập") {
                         Text(AccessMethod.current.title)
                             .foregroundStyle(.secondary)
@@ -92,6 +102,9 @@ struct AppsView: View {
                 await tunnel.load()
                 if vpnAutoConnect, tunnel.hasConfiguration, tunnel.status == .disconnected {
                     await tunnel.connect()
+                }
+                if tunnel.isConnected {
+                    await tunnel.refreshReachability()
                 }
                 await catalog.reloadIfNeeded()
             }

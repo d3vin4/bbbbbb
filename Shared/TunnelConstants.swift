@@ -2,12 +2,16 @@ import Foundation
 
 /// Constants shared by the app and the embedded PacketTunnel extension.
 enum TunnelConstants {
-    /// Bundle identifier of the app. Kept as a literal so the tunnel extension
-    /// does not depend on Bundle.main (which differs between app and extension).
-    ///
-    /// This identity is required by the MHA-C2 direct container workflow
-    /// (same approach as 3105 / FilzaSlop). See NOTICES.md.
-    static let appBundleIdentifier = "com.apple.mobile.MobileHouseArrest"
+    /// Canonical identity used by the MHA-C2 direct container workflow
+    /// (same approach as 3105 / FilzaSlop). The build may override
+    /// PRODUCT_BUNDLE_IDENTIFIER (e.g. the “lite” variant for parallel
+    /// installs); the daemon decides what it accepts.
+    static let canonicalAppBundleIdentifier = "com.apple.mobile.MobileHouseArrest"
+
+    /// App-side bundle id (never used from the extension, where Bundle.main differs).
+    static var appBundleIdentifier: String {
+        Bundle.main.bundleIdentifier ?? canonicalAppBundleIdentifier
+    }
 
     static var providerBundleIdentifier: String {
         appBundleIdentifier + ".PacketTunnel"

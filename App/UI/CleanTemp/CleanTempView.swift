@@ -133,13 +133,17 @@ struct CleanTempView: View {
         defer { isLoadingRecords = false }
 
         let report = DirectEngine.shared.capabilityReport()
-        guard report.mcmAvailable && report.mhaIdentity else {
-            loadError = "Cần engine Trực tiếp (MHA-C2) để dọn Temp/Cache: MCM \(report.mcmAvailable ? "OK" : "thiếu"), identity \(report.mhaIdentity ? "đúng" : "chưa đúng")."
+        guard report.mcmAvailable else {
+            loadError = "Cần engine Trực tiếp để dọn Temp/Cache: MCM \(report.mcmAvailable ? "OK" : "thiếu")."
             return
         }
         do {
-            records = try await Task.detached {
-                try DirectEngine.shared.fetchApplications(limit: 600)
+            records = try await Task.detached { () -> [ContainerRecord] in
+                do {
+                    return try DirectEngine.shared.fetchApplications(limit: 600)
+                } catch {
+                    return try DirectEngine.shared.fetchApplicationsViaEscapeMap(limit: 400)
+                }
             }.value
             model.scan(records: filteredRecords)
         } catch {

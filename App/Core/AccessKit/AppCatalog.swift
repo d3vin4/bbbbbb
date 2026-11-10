@@ -94,17 +94,19 @@ final class AppCatalog: ObservableObject {
 
     private func reloadAuto() async {
         let report = DirectEngine.shared.capabilityReport()
-        if report.isMHAReady {
-            // Đường nhanh: chỉ liệt kê identifier (một lệnh MCM) → hiện ngay.
-            await reloadDirect()
-            scheduleIconRefresh()
-            return
+        if report.mcmAvailable {
+            // Đường nhanh: một lệnh MCM → hiện ngay; nếu daemon từ chối và có
+            // App Group, tự chuyển sang worse_query map bên dưới.
+            if await loadDirectFast(report: report) {
+                scheduleIconRefresh()
+                return
+            }
         }
         if AirliftEngine.shared.hasPairing {
             await reloadAirlift()
             return
         }
-        state = .failed("Không có engine nào sẵn sàng: cần ký với identity MHA (Trực tiếp) hoặc pairing (AirLift). Mở “Kiểm tra tương thích” để xem hướng dẫn.")
+        state = .failed("Không có engine nào sẵn sàng (MCM \(report.mcmAvailable ? "OK" : "thiếu"), identity \(report.mhaIdentity ? "đúng" : "chưa đúng")). Mở “Kiểm tra tương thích” để xem hướng dẫn.")
     }
 
     /// Icons qua AirLift chạy nền — không chặn danh sách.
@@ -124,15 +126,48 @@ final class AppCatalog: ObservableObject {
         }
     }
 
+    /// iOS 26+ có thể ẩn app khỏi enumerate — merge thêm từ LaunchServices store.
+    private func scheduleLaunchServicesMerge() {
+        guard DirectEngine.shared.capabilityReport().mcmAvailable else { return }
+        Task {
+            guard let records = try? await Task.detached {
+                try DirectEngine.shared.fetchApplicationsViaLaunchServices(limit: 600)
+            }.value, !records.isEmpty else { return }
+
+            let existing = Set(apps.map(\.bundleID))
+            let additions = records
+                .filter { !existing.contains($0.identifier) }
+                .map {
+                    CatalogApp(
+                        bundleID: $0.identifier,
+                        name: $0.identifier,
+                        version: "",
+                        type: $0.kind.title,
+                        path: $0.path,
+                        source: .direct
+                    )
+                }
+            guard !additions.isEmpty else { return }
+            apps.append(contentsOf: additions)
+            apps.sort { $0.bundleID.localizedCaseInsensitiveCompare($1.bundleID) == .orderedAscending }
+            saveCatalogCache()
+            Log.info("AppCatalog: +\(additions.count) app từ LaunchServices store (app bị ẩn)", category: .badquery)
+        }
+    }
+
     // MARK: - Trực tiếp
 
     private func reloadDirect() async {
-        state = .loading
         let report = DirectEngine.shared.capabilityReport()
-        guard report.isMHAReady else {
-            state = .failed("Trực tiếp cần bundle id MHA-C2 và ký đủ quyền (MCM: \(report.mcmAvailable ? "có" : "thiếu"), identity: \(report.mhaIdentity ? "đúng" : "chưa đúng")).")
-            return
+        if await loadDirectFast(report: report) {
+            scheduleIconRefresh()
         }
+    }
+
+    /// Liệt kê nhanh nhất có thể; trả về true khi có danh sách.
+    @discardableResult
+    private func loadDirectFast(report: DirectEngine.CapabilityReport) async -> Bool {
+        state = .loading
         do {
             let records = try await Task.detached {
                 try DirectEngine.shared.fetchApplicationsFast(limit: 600)
@@ -150,9 +185,80 @@ final class AppCatalog: ObservableObject {
             state = .loaded
             saveCatalogCache()
             loadCachedIcons()
+            scheduleLaunchServicesMerge()
+            if !report.mhaIdentity {
+                Log.info("AppCatalog: daemon chấp nhận build (identity chưa phải MHA) — MHA-C2 vẫn hoạt động", category: .badquery)
+            }
+            return true
         } catch {
-            state = .failed(error.localizedDescription)
+            let enumerateError = error
+
+            // iOS 26+ có thể ẩn app khỏi enumerate: thử LaunchServices store
+            // (class 10 com.apple.lsd → xác nhận class-2). Soft-gate.
+            if report.mcmAvailable {
+                if let records = try? await Task.detached { () -> [ContainerRecord] in
+                    try DirectEngine.shared.fetchApplicationsViaLaunchServices(limit: 600)
+                }.value, !records.isEmpty {
+                    apps = records.map {
+                        CatalogApp(
+                            bundleID: $0.identifier,
+                            name: $0.identifier,
+                            version: "",
+                            type: $0.kind.title,
+                            path: $0.path,
+                            source: .direct
+                        )
+                    }
+                    state = .loaded
+                    saveCatalogCache()
+                    loadCachedIcons()
+                    Log.info("AppCatalog: liệt kê qua LaunchServices store — \(records.count) app", category: .badquery)
+                    return true
+                }
+            }
+
+            // Fallback cho build không có identity MHA nhưng có App Group:
+            // worse_query (class-7) + fsgetpath + MCMMetadataIdentifier.
+            if report.mcmAvailable, !report.mhaIdentity, !report.appGroups.isEmpty {
+                let records = try? await Task.detached { () -> [ContainerRecord] in
+                    try DirectEngine.shared.fetchApplicationsViaEscapeMap(limit: 400) { scanned in
+                        if scanned % 25 == 0 {
+                            Log.info("AppCatalog: quét container \(scanned)…", category: .badquery)
+                        }
+                    }
+                }.value
+                if let records, !records.isEmpty {
+                    apps = records.map {
+                        CatalogApp(
+                            bundleID: $0.identifier,
+                            name: $0.identifier,
+                            version: "",
+                            type: $0.kind.title,
+                            path: $0.path,
+                            source: .direct
+                        )
+                    }
+                    state = .loaded
+                    saveCatalogCache()
+                    loadCachedIcons()
+                    Log.info("AppCatalog: liệt kê qua worse_query map — \(records.count) app", category: .badquery)
+                    return true
+                }
+            }
+
+            state = .failed(directFailureMessage(report: report, error: enumerateError))
+            return false
         }
+    }
+
+    private func directFailureMessage(report: DirectEngine.CapabilityReport, error: Error) -> String {
+        if !report.mcmAvailable {
+            return "MCM không khả dụng: \(error.localizedDescription)"
+        }
+        if !report.mhaIdentity {
+            return "Daemon từ chối vì app không mang identity MHA (cần CẢ CFBundleIdentifier và CodeDirectory identifier = com.apple.mobile.MobileHouseArrest): \(error.localizedDescription). Engine tự dùng worse_query/bad_query/class-2 — xem “Kiểm tra tương thích”."
+        }
+        return error.localizedDescription
     }
 
     // MARK: - AirLift

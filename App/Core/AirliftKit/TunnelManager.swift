@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import Network
 import NetworkExtension
 
 /// Manages the embedded loopback tunnel (NETunnelProviderManager) from the app.
@@ -13,6 +14,8 @@ final class TunnelManager: ObservableObject {
 
     @Published private(set) var status: NEVPNStatus = .invalid
     @Published private(set) var lastError: String?
+    @Published private(set) var serviceReachable = false
+    @Published private(set) var externalTunnel: String?
 
     private var manager: NETunnelProviderManager?
     private var statusObserver: NSObjectProtocol?
@@ -52,11 +55,18 @@ final class TunnelManager: ObservableObject {
     func load() async {
         do {
             let managers = try await NETunnelProviderManager.loadAllFromPreferences()
-            manager = managers.first { candidate in
+            let ours = managers.first { candidate in
                 (candidate.protocolConfiguration as? NETunnelProviderProtocol)?
                     .providerBundleIdentifier == TunnelConstants.providerBundleIdentifier
-            } ?? managers.first
+            }
+            manager = ours ?? managers.first
+            externalTunnel = managers.first { candidate in
+                candidate !== manager && candidate.connection.status == .connected
+            }?.localizedDescription
             refreshStatus()
+            if isConnected {
+                await refreshReachability()
+            }
         } catch {
             lastError = error.localizedDescription
             Log.warning("Không đọc được cấu hình tunnel: \(error.localizedDescription)", category: .vpn)
@@ -73,6 +83,7 @@ final class TunnelManager: ObservableObject {
             lastError = nil
             Log.info("Đã yêu cầu bật tunnel loopback", category: .vpn)
             refreshStatus()
+            Task { await self.monitorUntilConnected() }
         } catch {
             lastError = error.localizedDescription
             Log.error("Không bật được tunnel: \(error.localizedDescription)", category: .vpn)
@@ -81,6 +92,7 @@ final class TunnelManager: ObservableObject {
 
     func disconnect() {
         manager?.connection.stopVPNTunnel()
+        serviceReachable = false
         Log.info("Đã yêu cầu ngắt tunnel", category: .vpn)
         refreshStatus()
     }
@@ -108,5 +120,86 @@ final class TunnelManager: ObservableObject {
 
     private func refreshStatus() {
         status = manager?.connection.status ?? .invalid
+    }
+
+    /// Poll nhanh sau khi bật để trạng thái UI/khả năng sẵn sàng cập nhật tức thì.
+    private func monitorUntilConnected(timeout: TimeInterval = 8) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            refreshStatus()
+            if isConnected {
+                await refreshReachability()
+                return
+            }
+            try? await Task.sleep(nanoseconds: 300_000_000)
+        }
+    }
+
+    /// Probe TCP tới peer (10.7.0.1:49152) — "đã kết nối" chưa chắc dịch vụ đã lên.
+    func refreshReachability() async {
+        guard isConnected else {
+            serviceReachable = false
+            return
+        }
+        serviceReachable = await Self.probePeer(
+            host: TunnelConstants.peerHost,
+            port: 49152,
+            timeout: 0.8
+        )
+        Log.info(
+            "Tunnel: probe \(TunnelConstants.peerHost):49152 → \(serviceReachable ? "OK" : "không phản hồi")",
+            category: .vpn
+        )
+    }
+
+    private static func probePeer(host: String, port: UInt16, timeout: TimeInterval) async -> Bool {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            guard let endpointPort = NWEndpoint.Port(rawValue: port) else {
+                continuation.resume(returning: false)
+                return
+            }
+            let connection = NWConnection(
+                host: NWEndpoint.Host(host),
+                port: endpointPort,
+                using: .tcp
+            )
+            let gate = ProbeGate()
+            let queue = DispatchQueue(label: "com.d3vin4.bbbbbb.tunnel.probe", qos: .utility)
+
+            func finish(_ reachable: Bool) {
+                guard gate.tryFinish() else { return }
+                connection.cancel()
+                continuation.resume(returning: reachable)
+            }
+
+            connection.stateUpdateHandler = { state in
+                switch state {
+                case .ready:
+                    finish(true)
+                case .failed, .cancelled:
+                    finish(false)
+                default:
+                    break
+                }
+            }
+            connection.start(queue: queue)
+            queue.asyncAfter(deadline: .now() + timeout) {
+                finish(false)
+            }
+        }
+    }
+}
+
+/// Chặn resume continuation nhiều lần trong probe.
+private final class ProbeGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var finished = false
+
+    func tryFinish() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if finished { return false }
+        finished = true
+        return true
     }
 }
