@@ -77,7 +77,8 @@ final class AppCatalog: ObservableObject {
         state = .loading
 
         // 1) Danh sách ứng dụng đã cài (LaunchServices): tức thì, có tên + icon.
-        let installed = await Task.detached { InstalledAppsProbe.installedApps() }.value
+        //    Chạy trên main — API này không an toàn đa luồng, và rất nhanh.
+        let installed = InstalledAppsProbe.installedApps()
         Log.info("AppCatalog: LaunchServices → \(installed.count) ứng dụng", category: .app)
 
         // 2) Container engine: enumerate nhanh (MHA-C2) để có sẵn đường dẫn.

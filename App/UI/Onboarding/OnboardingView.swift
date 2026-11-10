@@ -99,7 +99,7 @@ struct OnboardingView: View {
                 }
             }
             .padding(.horizontal, 16)
-            .background(.quaternary, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
     }
 
@@ -213,7 +213,7 @@ struct OnboardingView: View {
                 )
             }
             .padding(16)
-            .background(.quaternary, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 
             if let pin = pairing.pairingPIN {
                 Text(L.t("PIN: ", "PIN: ") + pin)
@@ -245,7 +245,7 @@ struct OnboardingView: View {
                 }
                 .disabled(tunnel.isConnected || tunnel.isBusy)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.glassProminent)
 
             if let error = tunnel.lastError {
                 Text(error)
@@ -258,21 +258,23 @@ struct OnboardingView: View {
     // MARK: - Thanh dưới
 
     private var bottomBar: some View {
-        HStack(spacing: 12) {
-            if step != .language {
-                Button(L.t("Quay lại", "Back")) {
-                    goBack()
+        GlassEffectContainer {
+            HStack(spacing: 12) {
+                if step != .language {
+                    Button(L.t("Quay lại", "Back")) {
+                        goBack()
+                    }
+                    .buttonStyle(.glass)
                 }
-                .buttonStyle(.bordered)
-            }
 
-            Button(primaryTitle) {
-                goNext()
+                Button(primaryTitle) {
+                    goNext()
+                }
+                .buttonStyle(.glassProminent)
+                .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .frame(maxWidth: .infinity)
+            .padding(20)
         }
-        .padding(20)
     }
 
     private var primaryTitle: String {
@@ -332,7 +334,10 @@ struct OnboardingView: View {
             .font(.system(size: 44))
             .foregroundStyle(.tint)
             .frame(width: 76, height: 76)
-            .background(.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .glassEffect(
+                .regular.tint(Color.accentColor.opacity(0.30)),
+                in: RoundedRectangle(cornerRadius: 20, style: .continuous)
+            )
     }
 
     private func featureRow(systemImage: String, title: String, detail: String) -> some View {
@@ -379,13 +384,9 @@ struct OnboardingView: View {
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                isSelected ? Color.accentColor.opacity(0.10) : Color.secondary.opacity(0.06),
+            .glassEffect(
+                isSelected ? .regular.tint(Color.accentColor.opacity(0.35)) : .regular,
                 in: RoundedRectangle(cornerRadius: 14, style: .continuous)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(isSelected ? Color.accentColor : Color.clear, lineWidth: 1.5)
             )
         }
         .buttonStyle(.plain)

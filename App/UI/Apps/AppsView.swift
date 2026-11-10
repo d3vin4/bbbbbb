@@ -92,12 +92,17 @@ struct AppsView: View {
             }
         } footer: {
             if catalog.isScanningContainers {
-                Text(L.t(
-                    "Đang quét container để mở được file trong từng ứng dụng…",
-                    "Scanning containers so you can open files inside each app…"
-                ))
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text(L.t(
+                        "Đang quét container để mở được file trong từng ứng dụng…",
+                        "Scanning containers so you can open files inside each app…"
+                    ))
+                    .font(.footnote)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .glassEffect(.regular, in: Capsule())
             }
         }
     }
