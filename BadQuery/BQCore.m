@@ -113,6 +113,14 @@ static void BQSetLastError(NSString *message) {
     gLastError = message;
 }
 
+static void BQLog(NSString *format, ...) {
+    va_list arguments;
+    va_start(arguments, format);
+    NSString *message = [[NSString alloc] initWithFormat:format arguments:arguments];
+    va_end(arguments);
+    NSLog(@"[BadQuery] %@", message);
+}
+
 static NSString *BQDescribeQueryError(BQAPI *api, void *query, NSString *where) {
     if (!query || !api->queryGetError) return [NSString stringWithFormat:@"%@: query returned no result", where];
     void *err = api->queryGetError(query);
