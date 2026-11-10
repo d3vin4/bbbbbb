@@ -51,13 +51,6 @@ struct SettingsView: View {
 
             LabeledContent(L.t("Container engine", "Container engine"), value: BQCore.routeSummary())
 
-            Text(L.t(
-                "Container của ứng dụng luôn mở bằng worse_query (mặc định, không cần chỉnh).",
-                "App containers always open with worse_query (default, nothing to configure)."
-            ))
-            .font(.footnote)
-            .foregroundStyle(.secondary)
-
             if accessMethod == .airlift {
                 LabeledContent(L.t("Pairing", "Pairing")) {
                     Text(pairing.hasPairingFile ? L.t("Đã pair", "Paired") : L.t("Chưa pair", "Not paired"))

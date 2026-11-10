@@ -99,7 +99,7 @@ struct OnboardingView: View {
                 }
             }
             .padding(.horizontal, 16)
-            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background(.quaternary, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
     }
 
@@ -213,7 +213,7 @@ struct OnboardingView: View {
                 )
             }
             .padding(16)
-            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background(.quaternary, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 
             if let pin = pairing.pairingPIN {
                 Text(L.t("PIN: ", "PIN: ") + pin)
@@ -384,9 +384,13 @@ struct OnboardingView: View {
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .glassEffect(
-                isSelected ? .regular.tint(Color.accentColor.opacity(0.35)) : .regular,
+            .background(
+                isSelected ? Color.accentColor.opacity(0.12) : Color.secondary.opacity(0.08),
                 in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(isSelected ? Color.accentColor : Color.clear, lineWidth: 1.5)
             )
         }
         .buttonStyle(.plain)

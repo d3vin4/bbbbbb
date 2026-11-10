@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// Màn chính: danh sách ứng dụng đã cài trên máy (tên, icon, container).
+/// Màn chính: danh sách ứng dụng đã cài (tên, icon, container).
 struct AppsView: View {
     @StateObject private var catalog = AppCatalog()
 
@@ -21,16 +21,26 @@ struct AppsView: View {
                     }
                     .disabled(catalog.state == .loading)
                 }
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    NavigationLink {
-                        LogsView()
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Picker(L.t("Hiện", "Show"), selection: $catalog.filter) {
+                            ForEach(AppCatalog.AppFilter.allCases) { option in
+                                Text(option.title).tag(option)
+                            }
+                        }
+                        Divider()
+                        NavigationLink {
+                            LogsView()
+                        } label: {
+                            Label(L.t("Nhật ký", "Logs"), systemImage: "list.bullet.rectangle")
+                        }
+                        NavigationLink {
+                            SettingsView()
+                        } label: {
+                            Label(L.t("Cài đặt", "Settings"), systemImage: "gearshape")
+                        }
                     } label: {
-                        Image(systemName: "list.bullet.rectangle")
-                    }
-                    NavigationLink {
-                        SettingsView()
-                    } label: {
-                        Image(systemName: "gearshape")
+                        Image(systemName: "ellipsis.circle")
                     }
                 }
             }
@@ -83,7 +93,9 @@ struct AppsView: View {
             }
         } header: {
             HStack {
-                Text(L.t("Ứng dụng", "Apps"))
+                Text(catalog.filter == .all
+                     ? L.t("Ứng dụng", "Apps")
+                     : catalog.filter.title)
                 Spacer()
                 if case .loaded = catalog.state {
                     Text("\(catalog.filteredApps.count)")
@@ -92,17 +104,12 @@ struct AppsView: View {
             }
         } footer: {
             if catalog.isScanningContainers {
-                HStack(spacing: 8) {
-                    ProgressView()
-                    Text(L.t(
-                        "Đang quét container để mở được file trong từng ứng dụng…",
-                        "Scanning containers so you can open files inside each app…"
-                    ))
-                    .font(.footnote)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .glassEffect(.regular, in: Capsule())
+                Text(L.t(
+                    "Đang quét container còn thiếu…",
+                    "Scanning for missing containers…"
+                ))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
             }
         }
     }

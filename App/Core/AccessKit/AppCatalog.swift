@@ -18,6 +18,9 @@ struct CatalogApp: Identifiable, Hashable, Codable {
     let source: Source
 
     var id: String { bundleID }
+
+    /// App hệ thống (Apple) hay app người dùng.
+    var isSystem: Bool { bundleID.hasPrefix("com.apple.") }
 }
 
 private struct CatalogCachePayload: Codable {
@@ -40,10 +43,27 @@ final class AppCatalog: ObservableObject {
         case failed(String)
     }
 
+    enum AppFilter: String, CaseIterable, Identifiable {
+        case all
+        case user
+        case system
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .all: return L.t("Tất cả", "All")
+            case .user: return L.t("Người dùng", "User")
+            case .system: return L.t("Hệ thống", "System")
+            }
+        }
+    }
+
     @Published private(set) var state: LoadState = .idle
     @Published private(set) var apps: [CatalogApp] = []
     @Published private(set) var icons: [String: UIImage] = [:]
     @Published private(set) var isScanningContainers = false
+    @Published var filter: AppFilter = .all
     @Published var searchText = ""
 
     private var didLoadOnce = false
@@ -65,8 +85,14 @@ final class AppCatalog: ObservableObject {
     }
 
     var filteredApps: [CatalogApp] {
-        guard !searchText.isEmpty else { return apps }
-        return apps.filter {
+        var list: [CatalogApp]
+        switch filter {
+        case .all: list = apps
+        case .user: list = apps.filter { !$0.isSystem }
+        case .system: list = apps.filter { $0.isSystem }
+        }
+        guard !searchText.isEmpty else { return list }
+        return list.filter {
             $0.name.localizedCaseInsensitiveContains(searchText)
                 || $0.bundleID.localizedCaseInsensitiveContains(searchText)
         }
@@ -84,19 +110,23 @@ final class AppCatalog: ObservableObject {
         defer { isReloading = false }
         state = .loading
 
-        // 1) Danh sách ứng dụng đã cài (LaunchServices): tức thì, có tên + icon.
+        // 1) Database ứng dụng của iOS (LaunchServices csstore): tên + container
+        //    path cho mọi app — không cần quét từng container (đọc 1 lần, nhớ lại).
+        let lsEntries = await Task.detached { LaunchServicesIndex.shared.entries() }.value
+        Log.info("AppCatalog: database iOS → \(lsEntries.count) ứng dụng", category: .app)
+
+        // 2) LaunchServices API (nếu máy cho phép) — bổ sung icon.
         //    Chạy trên main — API này không an toàn đa luồng, và rất nhanh.
         let installed = InstalledAppsProbe.installedApps()
-        Log.info("AppCatalog: LaunchServices → \(installed.count) ứng dụng", category: .app)
 
-        // 2) Container engine: enumerate nhanh (MHA-C2) để có sẵn đường dẫn.
+        // 3) Container engine: enumerate nhanh (MHA-C2) để có sẵn đường dẫn.
         var records: [ContainerRecord] = []
         if DirectEngine.shared.capabilityReport().mcmAvailable {
             records = (try? await Task.detached { try DirectEngine.shared.fetchApplicationsFast(limit: 600) }.value) ?? []
         }
 
-        if !installed.isEmpty || !records.isEmpty {
-            rebuild(installed: installed, records: records)
+        if !lsEntries.isEmpty || !installed.isEmpty || !records.isEmpty {
+            rebuild(installed: installed, records: records, lsEntries: lsEntries)
             state = .loaded
             saveCatalogCache()
         } else {
@@ -166,18 +196,41 @@ final class AppCatalog: ObservableObject {
 
     // MARK: - Dữ liệu
 
-    private func rebuild(installed: [InstalledAppInfo], records: [ContainerRecord]) {
+    private func rebuild(installed: [InstalledAppInfo], records: [ContainerRecord], lsEntries: [LaunchServicesEntry]) {
         var byID: [String: CatalogApp] = [:]
 
-        for info in installed {
-            byID[info.bundleID] = CatalogApp(
-                bundleID: info.bundleID,
-                name: info.name,
+        // Database iOS: nguồn chính (tên + container path).
+        for entry in lsEntries {
+            byID[entry.bundleID] = CatalogApp(
+                bundleID: entry.bundleID,
+                name: entry.name,
                 version: "",
-                type: "Application",
-                path: nil,
+                type: entry.isExtension ? "Extension" : "Application",
+                path: entry.containerPath,
                 source: .direct
             )
+        }
+
+        for info in installed {
+            if let existing = byID[info.bundleID] {
+                byID[info.bundleID] = CatalogApp(
+                    bundleID: existing.bundleID,
+                    name: info.name,
+                    version: existing.version,
+                    type: existing.type,
+                    path: existing.path,
+                    source: .direct
+                )
+            } else {
+                byID[info.bundleID] = CatalogApp(
+                    bundleID: info.bundleID,
+                    name: info.name,
+                    version: "",
+                    type: "Application",
+                    path: nil,
+                    source: .direct
+                )
+            }
             if let icon = info.icon {
                 icons[info.bundleID] = icon
                 persistIcon(icon, for: info.bundleID)
@@ -265,6 +318,14 @@ final class AppCatalog: ObservableObject {
 
     private func startContainerScan() {
         guard !isScanningContainers else { return }
+
+        // Database iOS đã cho container của phần lớn app → không cần quét
+        // (đây là đường nhanh: bỏ hẳn quét inode).
+        let appsWithPath = apps.filter { $0.path != nil }.count
+        if appsWithPath >= 50, appsWithPath * 2 >= apps.count {
+            Log.info("AppCatalog: database đã có container (\(appsWithPath)/\(apps.count)) — bỏ quét", category: .badquery)
+            return
+        }
 
         // Đã quét gần đây (và đúng phiên bản quét) → bỏ qua cho nhanh.
         let storedVersion = UserDefaults.standard.integer(forKey: Self.scanVersionKey)
