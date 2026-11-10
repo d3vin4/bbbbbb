@@ -1118,7 +1118,9 @@ static NSString *BQEscapePathForHandle(int64_t handle) {
 + (NSArray<NSString *> *)listDirectoryEntries:(NSString *)path maxInode:(uint64_t)maxInode {
     if (!path.length || maxInode < 1) return @[];
 
-    NSString *dir = path;
+    // fsgetpath trả đường dẫn thật (/private/var/…) nên phải so sánh bằng
+    // dạng chuẩn hoá, nếu không kết quả luôn rỗng.
+    NSString *dir = BQNormPath(path);
     while (dir.length > 1 && [dir hasSuffix:@"/"]) {
         dir = [dir substringToIndex:dir.length - 1];
     }

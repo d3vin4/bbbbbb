@@ -319,6 +319,7 @@ final class DirectEngine {
             }
         }
 
+        Log.info("Direct: parent escape không được token (đúng như 27.0) — quét fsgetpath", category: .badquery)
         let scanned = BQCore.listDirectoryEntries(directory, maxInode: 1_500_000)
         Log.info("Direct: fsgetpath → \(scanned.count) container trong \(directory)", category: .badquery)
         return scanned

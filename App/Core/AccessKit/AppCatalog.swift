@@ -47,6 +47,9 @@ final class AppCatalog: ObservableObject {
     @Published var searchText = ""
 
     private var didLoadOnce = false
+    private var isReloading = false
+    private var isFetchingIcons = false
+    private static let lastScanKey = "bbbbbb.containerScanCompletedAt"
     private let iconDirectory: URL
     private let cacheFileURL: URL
 
@@ -74,6 +77,9 @@ final class AppCatalog: ObservableObject {
     }
 
     func reload() async {
+        guard !isReloading else { return }
+        isReloading = true
+        defer { isReloading = false }
         state = .loading
 
         // 1) Danh sách ứng dụng đã cài (LaunchServices): tức thì, có tên + icon.
@@ -100,8 +106,48 @@ final class AppCatalog: ObservableObject {
             await mergeAirliftCatalog()
         }
 
-        // 4) Quét sâu container (worse_query) — chạy nền, bổ sung app + path.
+        // 4) Icon còn thiếu: tải nền theo lô (tunnel ấm), hiện dần lên danh sách.
+        startIconFetch()
+
+        // 5) Quét sâu container (worse_query) — chạy nền, bổ sung app + path.
         startContainerScan()
+    }
+
+    // MARK: - Icon (tải nền theo lô, cache đĩa)
+
+    private func startIconFetch() {
+        guard !isFetchingIcons, AirliftEngine.shared.hasPairing else { return }
+        let missing = apps.map(\.bundleID).filter { icons[$0] == nil }
+        guard !missing.isEmpty else { return }
+
+        isFetchingIcons = true
+        Task {
+            var remaining = missing
+            let batchSize = 40
+            var failures = 0
+            while !remaining.isEmpty {
+                let batch = Array(remaining.prefix(batchSize))
+                remaining.removeFirst(batch.count)
+                let fetched = await AirliftServices.shared.fetchIcons(bundleIDs: batch)
+                if fetched.isEmpty {
+                    failures += 1
+                    if failures >= 2 { break }
+                    continue
+                }
+                failures = 0
+                applyIcons(fetched)
+            }
+            isFetchingIcons = false
+            Log.info("AppCatalog: icon còn thiếu \(remaining.count), đã có \(icons.count)", category: .airlift)
+        }
+    }
+
+    private func applyIcons(_ fetched: [String: Data]) {
+        for (bundleID, data) in fetched {
+            guard let image = UIImage(data: data) else { continue }
+            icons[bundleID] = image
+            persistIcon(image, for: bundleID)
+        }
     }
 
     /// Gỡ cài đặt một ứng dụng (qua AirLift / InstallationProxy).
@@ -183,7 +229,8 @@ final class AppCatalog: ObservableObject {
 
     private func mergeAirliftCatalog() async {
         guard AirliftEngine.shared.hasPairing else { return }
-        guard let catalog = try? await AirliftServices.shared.fetchAppCatalog(iconLimit: 80) else { return }
+        // Chỉ lấy danh sách (không chờ icon) — icon tải nền theo lô ở dưới.
+        guard let catalog = try? await AirliftServices.shared.fetchAppCatalog(iconLimit: 0) else { return }
 
         var byID: [String: CatalogApp] = [:]
         for app in apps { byID[app.bundleID] = app }
@@ -216,6 +263,15 @@ final class AppCatalog: ObservableObject {
 
     private func startContainerScan() {
         guard !isScanningContainers else { return }
+
+        // Đã quét gần đây và danh sách đã có đường dẫn → bỏ qua cho nhanh.
+        if let last = UserDefaults.standard.object(forKey: Self.lastScanKey) as? Date,
+           Date().timeIntervalSince(last) < 3600,
+           apps.contains(where: { $0.path != nil }) {
+            Log.info("AppCatalog: bỏ qua quét container (vừa quét < 1 giờ)", category: .badquery)
+            return
+        }
+
         isScanningContainers = true
 
         Task {
@@ -236,6 +292,7 @@ final class AppCatalog: ObservableObject {
 
             mergePaths(records)
             saveCatalogCache()
+            UserDefaults.standard.set(Date(), forKey: Self.lastScanKey)
             Log.info(
                 "AppCatalog: quét xong — \(records.count) container, tổng \(apps.count) ứng dụng",
                 category: .badquery
