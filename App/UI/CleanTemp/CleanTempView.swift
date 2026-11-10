@@ -132,18 +132,24 @@ struct CleanTempView: View {
         isLoadingRecords = true
         defer { isLoadingRecords = false }
 
-        let report = DirectEngine.shared.capabilityReport()
-        guard report.mcmAvailable else {
-            loadError = "Cần engine Trực tiếp để dọn Temp/Cache: MCM \(report.mcmAvailable ? "OK" : "thiếu")."
-            return
-        }
         do {
             records = try await Task.detached { () -> [ContainerRecord] in
-                do {
-                    return try DirectEngine.shared.fetchApplications(limit: 600)
-                } catch {
-                    return try DirectEngine.shared.fetchApplicationsDeep(limit: 400)
+                // Nguồn chính: database ứng dụng của iOS (có container path).
+                let entries = LaunchServicesIndex.shared.entries()
+                var result = entries.compactMap { entry -> ContainerRecord? in
+                    guard let path = entry.containerPath, !path.isEmpty else { return nil }
+                    return ContainerRecord(identifier: entry.bundleID, kind: .application, path: path)
                 }
+                if result.isEmpty {
+                    // Dự phòng: quét container (worse_query).
+                    result = try DirectEngine.shared.fetchApplicationsDeep(limit: 600)
+                }
+                if result.isEmpty {
+                    throw DirectEngine.shared.capabilityReport().mcmAvailable
+                        ? NSError(domain: "CleanTemp", code: -1, userInfo: [NSLocalizedDescriptionKey: "Không tìm thấy container ứng dụng."])
+                        : NSError(domain: "CleanTemp", code: -2, userInfo: [NSLocalizedDescriptionKey: "Chưa có nguồn container — thử tải lại danh sách ứng dụng."])
+                }
+                return result
             }.value
             model.scan(records: filteredRecords)
         } catch {

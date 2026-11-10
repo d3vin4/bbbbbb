@@ -15,7 +15,6 @@ struct SettingsView: View {
     @ObservedObject private var pairing = PairingController.shared
 
     @State private var isShowingSetup = false
-    @State private var isShowingInstall = false
 
     var body: some View {
         List {
@@ -29,9 +28,6 @@ struct SettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $isShowingSetup) {
             OnboardingView(isReview: true)
-        }
-        .sheet(isPresented: $isShowingInstall) {
-            InstallIPAView()
         }
         .task {
             await tunnel.load()
@@ -84,11 +80,6 @@ struct SettingsView: View {
                 FavoritesView()
             } label: {
                 Label(L.t("Yêu thích & Gần đây", "Favorites & Recents"), systemImage: "star")
-            }
-            Button {
-                isShowingInstall = true
-            } label: {
-                Label(L.t("Cài ứng dụng (.ipa)", "Install app (.ipa)"), systemImage: "square.and.arrow.down")
             }
         } header: {
             Label(L.t("Dữ liệu", "Data"), systemImage: "internaldrive")

@@ -75,8 +75,16 @@ final class LaunchServicesIndex: @unchecked Sendable {
             Log.info("LaunchServices: chưa tìm thấy database", category: .app)
             return []
         }
+
+        // File nằm trong container của daemon → cần token cho thư mục chứa nó
+        // trong suốt quá trình đọc (trước đây thu hồi token rồi mới đọc → lỗi).
+        let storeDirectory = (storePath as NSString).deletingLastPathComponent
+        let handle = BQCore.escapeTarget(storeDirectory)
+        defer {
+            if handle >= 0 { BQCore.endEscape(handle) }
+        }
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: storePath), options: .mappedIfSafe) else {
-            Log.warning("LaunchServices: không đọc được \(storePath)", category: .app)
+            Log.warning("LaunchServices: không đọc được \(storePath) (token \(handle))", category: .app)
             return []
         }
 
