@@ -3,7 +3,7 @@ import SwiftUI
 /// Cài đặt chia theo nhóm rõ ràng: Truy cập · Dữ liệu · Giao diện ·
 /// Trình duyệt tệp · Về app.
 struct SettingsView: View {
-    @AppStorage(AccessMethod.storageKey) private var accessMethod: AccessMethod = .auto
+    @AppStorage(AccessMethod.storageKey) private var accessMethod: AccessMethod = .direct
     @AppStorage(AppLanguage.storageKey) private var language: AppLanguage = .english
     @AppStorage("bbbbbb.files.viewMode") private var filesViewMode = "list"
     @AppStorage(FileBrowserModel.showHiddenKey) private var filesShowHidden = false

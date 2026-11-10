@@ -8,7 +8,7 @@ let onboardingCompletedKey = "bbbbbb.onboarding.completed"
 struct OnboardingView: View {
     @AppStorage(onboardingCompletedKey) private var isCompleted = false
     @AppStorage(AppLanguage.storageKey) private var language: AppLanguage = .english
-    @AppStorage(AccessMethod.storageKey) private var accessMethod: AccessMethod = .auto
+    @AppStorage(AccessMethod.storageKey) private var accessMethod: AccessMethod = .direct
 
     @ObservedObject private var pairing = PairingController.shared
     @ObservedObject private var tunnel = TunnelManager.shared
