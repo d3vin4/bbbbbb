@@ -227,6 +227,8 @@ static NSRecursiveLock *gClass7Lock;
 static const NSUInteger kBQMaxLiveHandles = 160;
 static NSMutableArray<NSNumber *> *gLiveHandles;
 
+static void BQGrantCachePurge(int64_t handle);
+
 static void BQTrackHandle(int64_t handle) {
     if (handle < 0) return;
     if (!gLiveHandles) gLiveHandles = [NSMutableArray array];
@@ -236,12 +238,42 @@ static void BQTrackHandle(int64_t handle) {
         [gLiveHandles removeObjectAtIndex:0];
         if (BQShared()->sandboxRelease) BQShared()->sandboxRelease(oldest);
         if (gEscapePaths) [gEscapePaths removeObjectForKey:@(oldest)];
+        BQGrantCachePurge(oldest);
     }
 }
 
-static void BQUntrackHandle(int64_t handle) {
-    if (handle < 0 || !gLiveHandles) return;
-    [gLiveHandles removeObject:@(handle)];
+/// Cache grant theo đường dẫn: mở lại cùng container là tức thì (không swap +
+/// query lại). Token được giữ tới khi vượt hạn mức (BQTrackHandle thu hồi).
+static NSMutableDictionary<NSString *, NSNumber *> *gGrantCache;
+static NSMutableArray<NSString *> *gGrantOrder;
+
+static void BQGrantCachePurge(int64_t handle) {
+    if (!gGrantCache) return;
+    NSArray<NSString *> *keys = [gGrantCache allKeysForObject:@(handle)];
+    for (NSString *key in keys) {
+        [gGrantCache removeObjectForKey:key];
+        [gGrantOrder removeObject:key];
+    }
+}
+
+static void BQGrantCacheStore(NSString *path, int64_t handle) {
+    if (!path.length || handle < 0) return;
+    if (!gGrantCache) {
+        gGrantCache = [NSMutableDictionary dictionary];
+        gGrantOrder = [NSMutableArray array];
+    }
+    if (gGrantCache[path]) return;
+    gGrantCache[path] = @(handle);
+    [gGrantOrder addObject:path];
+}
+
+static int64_t BQGrantCacheLookup(NSString *path) {
+    if (!path.length || !gGrantCache) return -1;
+    NSNumber *known = gGrantCache[path];
+    if (!known) return -1;
+    [gGrantOrder removeObject:path];
+    [gGrantOrder addObject:path];
+    return known.longLongValue;
 }
 
 static NSDictionary<NSString *, NSString *> *BQContainerIdentifierMap(void);
@@ -1032,7 +1064,8 @@ static int64_t BQEscapeClass2Stage(NSString *target) {
     }
 }
 
-+ (int64_t)escapeTarget:(NSString *)target {
+/// Chuỗi chiến lược escape (không cache). Xem +escapeTarget: để dùng cache.
+static int64_t BQEscapeUncached(NSString *target) {
     if (!target.length) return -1;
 
     int64_t last = -1;
@@ -1091,6 +1124,19 @@ static int64_t BQEscapeClass2Stage(NSString *target) {
     return last;
 }
 
++ (int64_t)escapeTarget:(NSString *)target {
+    if (!target.length) return -1;
+
+    // Cache: lần lấy token thứ hai cho cùng đường dẫn là miễn phí.
+    NSString *key = BQNormPath(target);
+    int64_t cached = BQGrantCacheLookup(key);
+    if (cached >= 0) return cached;
+
+    int64_t handle = BQEscapeUncached(key);
+    if (handle >= 0) BQGrantCacheStore(key, handle);
+    return handle;
+}
+
 + (NSString *)escapedPathForHandle:(int64_t)handle {
     return BQEscapePathForHandle(handle);
 }
@@ -1101,18 +1147,10 @@ static NSString *BQEscapePathForHandle(int64_t handle) {
 }
 
 + (void)endEscape:(int64_t)handle {
-    BQAPI *api = BQShared();
-    if (handle >= 0 && api->sandboxRelease) api->sandboxRelease(handle);
+    // Token KHÔNG bị thu hồi ở đây — nó nằm trong cache grant và chỉ bị thu
+    // hồi khi vượt hạn mức, nên mở lại container là tức thì.
+    if (handle < 0) return;
     if (gEscapePaths) [gEscapePaths removeObjectForKey:@(handle)];
-    BQUntrackHandle(handle);
-
-    NSString *groupRoot = gEscapeGroupRoot;
-    gEscapeGroupRoot = nil;
-    if (!groupRoot.length) return;
-    NSString *library = [groupRoot stringByAppendingPathComponent:@"Library"];
-    NSString *caches = [library stringByAppendingPathComponent:@"Caches"];
-    NSString *backup = [library stringByAppendingPathComponent:@"Caches.bqtool"];
-    BQRestorePath(caches, backup);
 }
 
 + (NSArray<NSString *> *)listDirectoryEntries:(NSString *)path maxInode:(uint64_t)maxInode {

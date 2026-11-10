@@ -77,6 +77,24 @@ struct SettingsView: View {
                 Label("App Groups", systemImage: "rectangle.3.group")
             }
             NavigationLink {
+                FileBrowserView(root: ContainerRecord(
+                    identifier: "System Data",
+                    kind: .application,
+                    path: "/private/var/containers/Data/System"
+                ))
+            } label: {
+                Label("System Data", systemImage: "internaldrive")
+            }
+            NavigationLink {
+                FileBrowserView(root: ContainerRecord(
+                    identifier: "System Groups",
+                    kind: .application,
+                    path: "/private/var/mobile/Containers/Shared/SystemGroup"
+                ))
+            } label: {
+                Label("System Groups", systemImage: "square.stack.3d.up")
+            }
+            NavigationLink {
                 FavoritesView()
             } label: {
                 Label(L.t("Yêu thích & Gần đây", "Favorites & Recents"), systemImage: "star")
