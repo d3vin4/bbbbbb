@@ -1116,6 +1116,13 @@ static NSString *BQEscapePathForHandle(int64_t handle) {
 }
 
 + (NSArray<NSString *> *)listDirectoryEntries:(NSString *)path maxInode:(uint64_t)maxInode {
+    return [self listDirectoryEntries:path fromInode:1 maxInode:maxInode scannedUpTo:NULL];
+}
+
++ (NSArray<NSString *> *)listDirectoryEntries:(NSString *)path
+                                    fromInode:(uint64_t)startInode
+                                     maxInode:(uint64_t)maxInode
+                                  scannedUpTo:(nullable uint64_t *)scannedUpTo {
     if (!path.length || maxInode < 1) return @[];
 
     // fsgetpath trả đường dẫn thật (/private/var/…) nên phải so sánh bằng
@@ -1136,7 +1143,8 @@ static NSString *BQEscapePathForHandle(int64_t handle) {
 
     NSMutableArray<NSString *> *result = [NSMutableArray array];
     char buffer[PATH_MAX];
-    for (uint64_t inode = 1; inode <= maxInode; inode++) {
+    uint64_t start = startInode > 0 ? startInode : 1;
+    for (uint64_t inode = start; inode <= maxInode; inode++) {
         ssize_t length = fsgetpath(buffer, sizeof(buffer), &fsid, inode);
         if (length <= 0) continue;
         if (strncmp(buffer, prefix, prefixLength) != 0) continue;
@@ -1145,6 +1153,7 @@ static NSString *BQEscapePathForHandle(int64_t handle) {
         NSString *entry = [NSString stringWithUTF8String:buffer];
         if (entry) [result addObject:entry];
     }
+    if (scannedUpTo) *scannedUpTo = maxInode;
     return result;
 }
 

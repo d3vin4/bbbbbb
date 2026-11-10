@@ -50,6 +50,8 @@ final class AppCatalog: ObservableObject {
     private var isReloading = false
     private var isFetchingIcons = false
     private static let lastScanKey = "bbbbbb.containerScanCompletedAt"
+    private static let scanVersionKey = "bbbbbb.containerScanVersion"
+    private static let currentScanVersion = 2
     private let iconDirectory: URL
     private let cacheFileURL: URL
 
@@ -264,8 +266,10 @@ final class AppCatalog: ObservableObject {
     private func startContainerScan() {
         guard !isScanningContainers else { return }
 
-        // Đã quét gần đây và danh sách đã có đường dẫn → bỏ qua cho nhanh.
-        if let last = UserDefaults.standard.object(forKey: Self.lastScanKey) as? Date,
+        // Đã quét gần đây (và đúng phiên bản quét) → bỏ qua cho nhanh.
+        let storedVersion = UserDefaults.standard.integer(forKey: Self.scanVersionKey)
+        if storedVersion >= Self.currentScanVersion,
+           let last = UserDefaults.standard.object(forKey: Self.lastScanKey) as? Date,
            Date().timeIntervalSince(last) < 3600,
            apps.contains(where: { $0.path != nil }) {
             Log.info("AppCatalog: bỏ qua quét container (vừa quét < 1 giờ)", category: .badquery)
@@ -293,6 +297,7 @@ final class AppCatalog: ObservableObject {
             mergePaths(records)
             saveCatalogCache()
             UserDefaults.standard.set(Date(), forKey: Self.lastScanKey)
+            UserDefaults.standard.set(Self.currentScanVersion, forKey: Self.scanVersionKey)
             Log.info(
                 "AppCatalog: quét xong — \(records.count) container, tổng \(apps.count) ứng dụng",
                 category: .badquery

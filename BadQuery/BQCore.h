@@ -82,6 +82,13 @@ NS_ASSUME_NONNULL_BEGIN
 /// where readdir is denied but the path is visible through fsgetpath.
 + (NSArray<NSString *> *)listDirectoryEntries:(NSString *)path maxInode:(uint64_t)maxInode;
 
+/// Như trên nhưng quét từ `startInode` (quét tăng dần: lần sau chỉ quét phần
+/// mới) và trả về inode cao nhất đã xét qua `scannedUpTo`.
++ (NSArray<NSString *> *)listDirectoryEntries:(NSString *)path
+                                    fromInode:(uint64_t)startInode
+                                     maxInode:(uint64_t)maxInode
+                                  scannedUpTo:(nullable uint64_t *)scannedUpTo;
+
 @end
 
 NS_ASSUME_NONNULL_END

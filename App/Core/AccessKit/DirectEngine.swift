@@ -320,8 +320,23 @@ final class DirectEngine {
         }
 
         Log.info("Direct: parent escape không được token (đúng như 27.0) — quét fsgetpath", category: .badquery)
-        let scanned = BQCore.listDirectoryEntries(directory, maxInode: 1_500_000)
-        Log.info("Direct: fsgetpath → \(scanned.count) container trong \(directory)", category: .badquery)
+        // Quét tăng dần: nhớ inode cao nhất đã xét, lần sau chỉ quét phần mới
+        // (vẫn lùi 200k để bắt inode được tái sử dụng).
+        let key = "bbbbbb.scanInode." + directory
+        let last = (UserDefaults.standard.object(forKey: key) as? NSNumber)?.uint64Value ?? 0
+        let start = last > 200_000 ? last - 200_000 : 1
+        var scannedUpTo: UInt64 = start
+        let scanned = BQCore.listDirectoryEntries(
+            directory,
+            fromInode: start,
+            maxInode: 6_000_000,
+            scannedUpTo: &scannedUpTo
+        )
+        UserDefaults.standard.set(NSNumber(value: scannedUpTo), forKey: key)
+        Log.info(
+            "Direct: fsgetpath → \(scanned.count) container trong \(directory) (inode \(start)…\(scannedUpTo))",
+            category: .badquery
+        )
         return scanned
     }
 
