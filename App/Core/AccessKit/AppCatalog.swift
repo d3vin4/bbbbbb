@@ -141,8 +141,10 @@ final class AppCatalog: ObservableObject {
         // 4) Icon còn thiếu: tải nền theo lô (tunnel ấm), hiện dần lên danh sách.
         startIconFetch()
 
-        // 5) Quét sâu container (worse_query) — chạy nền, bổ sung app + path.
+        // 5) Quét sâu container (worse_query) + quét gói .app — chạy nền,
+        //    bảo đảm danh sách đủ app kèm tên thật.
         startContainerScan()
+        startBundleScan()
     }
 
     // MARK: - Icon (tải nền theo lô, cache đĩa)
@@ -273,6 +275,33 @@ final class AppCatalog: ObservableObject {
         }
     }
 
+    private func mergeBundles(_ bundles: [(bundleID: String, name: String)]) {
+        var byID: [String: CatalogApp] = [:]
+        for app in apps { byID[app.bundleID] = app }
+        for bundle in bundles {
+            if let existing = byID[bundle.bundleID] {
+                byID[bundle.bundleID] = CatalogApp(
+                    bundleID: existing.bundleID,
+                    name: existing.name == existing.bundleID ? bundle.name : existing.name,
+                    version: existing.version,
+                    type: existing.type,
+                    path: existing.path,
+                    source: .direct
+                )
+            } else {
+                byID[bundle.bundleID] = CatalogApp(
+                    bundleID: bundle.bundleID,
+                    name: bundle.name,
+                    version: "",
+                    type: "Application",
+                    path: nil,
+                    source: .direct
+                )
+            }
+        }
+        apps = sorted(byID)
+    }
+
     private func mergePaths(_ records: [ContainerRecord]) {
         var byID: [String: CatalogApp] = [:]
         for app in apps { byID[app.bundleID] = app }
@@ -363,6 +392,32 @@ final class AppCatalog: ObservableObject {
                 "AppCatalog: quét xong — \(records.count) container, tổng \(apps.count) ứng dụng",
                 category: .badquery
             )
+        }
+    }
+
+    /// Quét gói .app — nguồn đủ app + tên thật (bundle luôn tồn tại).
+    private func startBundleScan() {
+        let storedVersion = UserDefaults.standard.integer(forKey: "bbbbbb.bundleScanVersion")
+        if storedVersion >= 1, apps.count >= 50 { return }
+
+        Task {
+            let bundles = (try? await Task.detached { () -> [(bundleID: String, name: String)] in
+                try DirectEngine.shared.fetchApplicationsFromBundles(limit: 600) { scanned, total in
+                    if scanned % 20 == 0 {
+                        Log.info("AppCatalog: quét bundle \(scanned)/\(total)", category: .badquery)
+                    }
+                }
+            }.value) ?? []
+
+            guard !bundles.isEmpty else {
+                Log.info("AppCatalog: quét bundle không ra kết quả", category: .badquery)
+                return
+            }
+
+            mergeBundles(bundles)
+            saveCatalogCache()
+            UserDefaults.standard.set(1, forKey: "bbbbbb.bundleScanVersion")
+            Log.info("AppCatalog: bundle scan → \(bundles.count) app, tổng \(apps.count) ứng dụng", category: .badquery)
         }
     }
 

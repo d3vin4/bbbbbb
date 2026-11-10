@@ -76,36 +76,92 @@ final class DirectEngine {
     /// riêng — đây là đường duy nhất liệt kê được app của máy khác khi app
     /// không mang identity MHA.
     func fetchApplicationsDeep(limit: Int = 600, progress: ((Int, Int) -> Void)? = nil) throws -> [ContainerRecord] {
-        let directory = "/var/mobile/Containers/Data/Application"
-        let candidates = containerCandidates(in: directory)
+        // Cả container người dùng, container hệ thống và container extension.
+        let directories = [
+            "/var/mobile/Containers/Data/Application",
+            "/var/containers/Data/Application",
+            "/var/mobile/Containers/Data/PluginKitPlugin",
+        ]
         var records: [ContainerRecord] = []
         var scanned = 0
+        var total = 0
 
-        for path in candidates {
-            if records.count >= limit { break }
-            scanned += 1
-            progress?(scanned, candidates.count)
+        for directory in directories {
+            let candidates = containerCandidates(in: directory)
+            total += candidates.count
 
-            // Container của chính app luôn đọc được → không cần escape.
-            if let identifier = Self.containerIdentifier(at: path) {
+            for path in candidates {
+                if records.count >= limit { break }
+                scanned += 1
+                progress?(scanned, total)
+
+                // Container của chính app luôn đọc được → không cần escape.
+                if let identifier = Self.containerIdentifier(at: path) {
+                    records.append(ContainerRecord(identifier: identifier, kind: .application, path: path))
+                    continue
+                }
+
+                // Container của app khác: cần token riêng để đọc metadata.
+                let handle = BQCore.escapeTarget(path)
+                guard handle >= 0 else { continue }
+                let escaped = BQCore.escapedPath(forHandle: handle) ?? path
+                let identifier = Self.containerIdentifier(at: escaped) ?? Self.containerIdentifier(at: path)
+                BQCore.endEscape(handle)
+                guard let identifier else { continue }
                 records.append(ContainerRecord(identifier: identifier, kind: .application, path: path))
-                continue
             }
-
-            // Container của app khác: cần token riêng để đọc metadata.
-            let handle = BQCore.escapeTarget(path)
-            guard handle >= 0 else { continue }
-            let escaped = BQCore.escapedPath(forHandle: handle) ?? path
-            let identifier = Self.containerIdentifier(at: escaped) ?? Self.containerIdentifier(at: path)
-            BQCore.endEscape(handle)
-            guard let identifier else { continue }
-            records.append(ContainerRecord(identifier: identifier, kind: .application, path: path))
         }
 
         guard !records.isEmpty else {
             throw Self.error(from: "liệt kê ứng dụng (worse_query)")
         }
         return records.sorted { $0.identifier.localizedCaseInsensitiveCompare($1.identifier) == .orderedAscending }
+    }
+
+    /// Quét gói ứng dụng: bundle luôn tồn tại kể cả khi app chưa có container
+    /// dữ liệu — đọc Info.plist để lấy bundle id + tên hiển thị. Đây là nguồn
+    /// bổ sung để danh sách ĐỦ app (kèm tên thật) khi database iOS thiếu.
+    func fetchApplicationsFromBundles(
+        limit: Int = 600,
+        progress: ((Int, Int) -> Void)? = nil
+    ) throws -> [(bundleID: String, name: String)] {
+        let directory = "/var/containers/Bundle/Application"
+        let candidates = containerCandidates(in: directory)
+        var results: [(bundleID: String, name: String)] = []
+        var scanned = 0
+
+        for candidate in candidates {
+            if results.count >= limit { break }
+            scanned += 1
+            progress?(scanned, candidates.count)
+
+            // Token cho thư mục bundle (UUID) rồi tìm file .app bên trong.
+            let dirHandle = BQCore.escapeTarget(candidate)
+            guard dirHandle >= 0 else { continue }
+            let entries = (try? FileManager.default.contentsOfDirectory(atPath: candidate)) ?? []
+            guard let appName = entries.first(where: { $0.hasSuffix(".app") }) else { continue }
+
+            let appPath = (candidate as NSString).appendingPathComponent(appName)
+            let infoPath = (appPath as NSString).appendingPathComponent("Info.plist")
+            let infoHandle = BQCore.escapeTarget(infoPath)
+            guard infoHandle >= 0,
+                  let data = try? Data(contentsOf: URL(fileURLWithPath: infoPath)),
+                  let plistObject = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
+                  let plist = plistObject as? [String: Any],
+                  let bundleID = plist["CFBundleIdentifier"] as? String,
+                  !bundleID.isEmpty else {
+                continue
+            }
+            let name = (plist["CFBundleDisplayName"] as? String)
+                ?? (plist["CFBundleName"] as? String)
+                ?? bundleID
+            results.append((bundleID, name))
+        }
+
+        guard !results.isEmpty else {
+            throw Self.error(from: "quét gói ứng dụng")
+        }
+        return results
     }
 
     /// iOS 26+ có thể ẩn app khỏi ContainerManager/LaunchServices enumeration.
