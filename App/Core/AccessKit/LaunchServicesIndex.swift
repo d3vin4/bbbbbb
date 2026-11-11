@@ -152,6 +152,29 @@ final class LaunchServicesIndex: @unchecked Sendable {
             return saved
         }
 
+        // Store chính (chứa TÊN hiển thị app) thường nằm ở Library/Caches của
+        // mobile — thử trước khi lục container daemon.
+        let mobileCaches = "/var/mobile/Library/Caches"
+        let mobileHandle = BQCore.escapeTarget(mobileCaches)
+        if mobileHandle >= 0 {
+            let names = (try? FileManager.default.contentsOfDirectory(atPath: mobileCaches)) ?? []
+            var bestMobile: (path: String, size: UInt64)?
+            for name in names where name.hasPrefix("com.apple.LaunchServices-") && name.hasSuffix(".csstore") {
+                let path = (mobileCaches as NSString).appendingPathComponent(name)
+                let attributes = try? FileManager.default.attributesOfItem(atPath: path)
+                let size = (attributes?[.size] as? UInt64) ?? 0
+                if bestMobile == nil || size > bestMobile!.size {
+                    bestMobile = (path, size)
+                }
+            }
+            BQCore.endEscape(mobileHandle)
+            if let bestMobile, bestMobile.size > 0 {
+                UserDefaults.standard.set(bestMobile.path, forKey: Self.storePathKey)
+                Log.info("LaunchServices: store chính tại \(bestMobile.path) (\(bestMobile.size) bytes)", category: .app)
+                return bestMobile.path
+            }
+        }
+
         // Container của daemon: escape từng cái rồi soi Library/Caches.
         let directory = "/var/mobile/Containers/Data/InternalDaemon"
         let containers = BQCore.listDirectoryEntries(directory, maxInode: 6_000_000)
