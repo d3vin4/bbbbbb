@@ -427,6 +427,9 @@ final class AppCatalog: ObservableObject {
     private func startBundleScan() {
         let storedVersion = UserDefaults.standard.integer(forKey: "bbbbbb.bundleScanVersion")
         if storedVersion >= 1, apps.count >= 50 { return }
+        // Gói .app không cấp được token (daemon chặn) → đánh dấu để không quét
+        // lại mỗi lần mở (8 giây vô ích); "Quét lại từ đầu" sẽ xoá cờ này.
+        if UserDefaults.standard.bool(forKey: "bbbbbb.bundleScanUnsupported") { return }
 
         Task {
             let bundles = (try? await Task.detached { () -> [(bundleID: String, name: String, icon: Data?)] in
@@ -438,7 +441,8 @@ final class AppCatalog: ObservableObject {
             }.value) ?? []
 
             guard !bundles.isEmpty else {
-                Log.info("AppCatalog: quét bundle không ra kết quả", category: .badquery)
+                UserDefaults.standard.set(true, forKey: "bbbbbb.bundleScanUnsupported")
+                Log.info("AppCatalog: gói .app không cấp token — tắt quét bundle", category: .badquery)
                 return
             }
 

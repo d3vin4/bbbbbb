@@ -105,6 +105,7 @@ struct SettingsView: View {
                 LaunchServicesIndex.shared.invalidate()
                 UserDefaults.standard.removeObject(forKey: "bbbbbb.containerScanVersion")
                 UserDefaults.standard.removeObject(forKey: "bbbbbb.bundleScanVersion")
+                UserDefaults.standard.removeObject(forKey: "bbbbbb.bundleScanUnsupported")
                 UserDefaults.standard.removeObject(forKey: "bbbbbb.containerScanCompletedAt")
                 Log.info("Settings: đã xoá cache quét — mở danh sách để quét lại", category: .app)
             } label: {
