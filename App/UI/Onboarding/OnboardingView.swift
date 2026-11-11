@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Khoá đánh dấu người dùng đã hoàn tất thiết lập lần đầu.
 let onboardingCompletedKey = "bbbbbb.onboarding.completed"
@@ -15,6 +16,7 @@ struct OnboardingView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var step: Step = .language
+    @State private var isShowingPINAlert = false
 
     /// Mở lại từ Cài đặt (xem lại hướng dẫn) thay vì lần thiết lập đầu.
     var isReview: Bool = false
@@ -50,6 +52,26 @@ struct OnboardingView: View {
             }
             .navigationTitle(L.t("Thiết lập", "Setup"))
             .navigationBarTitleDisplayMode(.inline)
+            .onChange(of: pairing.pairingPIN) { _, newValue in
+                // Emergency pop up: hiện mã PIN ngay khi thiết bị phát mã,
+                // kèm Live Activity đang mở.
+                isShowingPINAlert = newValue != nil
+            }
+            .alert(
+                L.t("Mã PIN pairing", "Pairing PIN"),
+                isPresented: $isShowingPINAlert
+            ) {
+                Button(L.t("Sao chép", "Copy")) {
+                    if let pin = pairing.pairingPIN {
+                        UIPasteboard.general.string = pin
+                    }
+                }
+                Button("OK", role: .cancel) {}
+            } message: {
+                if let pin = pairing.pairingPIN {
+                    Text(L.t("Nhập mã này trong Developer Mode:\n\n\(pin)", "Enter this code in Developer Mode:\n\n\(pin)"))
+                }
+            }
             .toolbar {
                 if isReview {
                     ToolbarItem(placement: .topBarLeading) {

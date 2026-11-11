@@ -99,6 +99,17 @@ struct SettingsView: View {
             } label: {
                 Label(L.t("Yêu thích & Gần đây", "Favorites & Recents"), systemImage: "star")
             }
+            Button(role: .destructive) {
+                // Quét lại từ đầu: xoá index database + mốc quét để lần sau
+                // dò lại đủ (dùng khi danh sách thiếu app).
+                LaunchServicesIndex.shared.invalidate()
+                UserDefaults.standard.removeObject(forKey: "bbbbbb.containerScanVersion")
+                UserDefaults.standard.removeObject(forKey: "bbbbbb.bundleScanVersion")
+                UserDefaults.standard.removeObject(forKey: "bbbbbb.containerScanCompletedAt")
+                Log.info("Settings: đã xoá cache quét — mở danh sách để quét lại", category: .app)
+            } label: {
+                Label(L.t("Quét lại từ đầu", "Rescan from scratch"), systemImage: "arrow.clockwise")
+            }
         } header: {
             Label(L.t("Dữ liệu", "Data"), systemImage: "internaldrive")
         }
