@@ -1110,6 +1110,10 @@ static int64_t BQEscapeUncached(NSString *target) {
     return last;
 }
 
+/// Cache âm: đường dẫn vừa escape thất bại → khỏi thử lại (tránh swap + query
+/// vô ích cho các thư mục cha bị chặn, ví dụ /var/mobile/Containers/Data/Application).
+static NSMutableDictionary<NSString *, NSNumber *> *gFailedEscapes;
+
 + (int64_t)escapeTarget:(NSString *)target {
     if (!target.length) return -1;
 
@@ -1118,8 +1122,21 @@ static int64_t BQEscapeUncached(NSString *target) {
     int64_t cached = BQGrantCacheLookup(key);
     if (cached >= 0) return cached;
 
+    if (!gFailedEscapes) gFailedEscapes = [NSMutableDictionary dictionary];
+    NSNumber *failedAt = gFailedEscapes[key];
+    if (failedAt) {
+        if (NSDate.date.timeIntervalSinceReferenceDate - failedAt.doubleValue < 600) {
+            return -1;
+        }
+        [gFailedEscapes removeObjectForKey:key];
+    }
+
     int64_t handle = BQEscapeUncached(key);
-    if (handle >= 0) BQGrantCacheStore(key, handle);
+    if (handle >= 0) {
+        BQGrantCacheStore(key, handle);
+    } else {
+        gFailedEscapes[key] = @(NSDate.date.timeIntervalSinceReferenceDate);
+    }
     return handle;
 }
 
