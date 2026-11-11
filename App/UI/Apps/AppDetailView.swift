@@ -8,6 +8,8 @@ struct AppDetailView: View {
     @State private var isWorking = false
     @State private var localError: String?
     @State private var activatedPath: String?
+    @State private var groups: [ContainerRecord] = []
+    @State private var isLoadingGroups = true
 
     var body: some View {
         List {
@@ -40,6 +42,8 @@ struct AppDetailView: View {
                     UIPasteboard.general.string = app.bundleID
                 }
             }
+
+            groupsSection
 
             Section(L.t("Hành động", "Actions")) {
                 NavigationLink {
@@ -101,6 +105,58 @@ struct AppDetailView: View {
         }
         .navigationTitle(app.name)
         .navigationBarTitleDisplayMode(.inline)
+        .task { await loadGroups() }
+    }
+
+    @ViewBuilder
+    private var groupsSection: some View {
+        Section {
+            if isLoadingGroups {
+                HStack(spacing: 10) {
+                    ProgressView()
+                    Text(L.t("Đang tìm App Group…", "Finding App Groups…"))
+                        .foregroundStyle(.secondary)
+                }
+            } else if groups.isEmpty {
+                Text(L.t("Không thấy App Group", "No App Groups found"))
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(groups) { group in
+                    NavigationLink {
+                        FileBrowserView(root: group)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(group.identifier)
+                                .lineLimit(1)
+                            Text(group.path)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                }
+            }
+        } header: {
+            HStack {
+                Text("App Groups")
+                Spacer()
+                if !isLoadingGroups {
+                    Text("\(groups.count)")
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private func loadGroups() async {
+        defer { isLoadingGroups = false }
+        guard groups.isEmpty else { return }
+        let bundleID = app.bundleID
+        let found = await Task.detached {
+            DirectEngine.shared.appGroups(forBundleID: bundleID)
+        }.value
+        groups = found
+        Log.info("Direct: \(bundleID) có \(found.count) App Group", category: .badquery)
     }
 
     @ViewBuilder

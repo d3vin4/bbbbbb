@@ -543,6 +543,38 @@ final class DirectEngine {
         return enumerated.map { ($0 as NSString).lastPathComponent }
     }
 
+    // MARK: - App Group của một app
+
+    private static let groupCacheLock = NSLock()
+    private static var groupCache: (records: [ContainerRecord], date: Date)?
+
+    /// Toàn bộ App Group trên máy (quét một lần, cache 1 giờ).
+    func allAppGroups() -> [ContainerRecord] {
+        Self.groupCacheLock.lock()
+        if let cached = Self.groupCache, Date().timeIntervalSince(cached.date) < 3600 {
+            Self.groupCacheLock.unlock()
+            return cached.records
+        }
+        Self.groupCacheLock.unlock()
+
+        let records = (try? fetchAppGroupsViaEscapeMap(limit: 900)) ?? []
+
+        Self.groupCacheLock.lock()
+        Self.groupCache = (records, Date())
+        Self.groupCacheLock.unlock()
+        return records
+    }
+
+    /// App Group của một app: khớp bundle id trong identifier của group
+    /// (dạng phổ biến `group.<bundle-id>`, `group.<team>.<app>…`).
+    func appGroups(forBundleID bundleID: String) -> [ContainerRecord] {
+        guard !bundleID.isEmpty else { return [] }
+        let short = bundleID.split(separator: ".").last.map(String.init) ?? bundleID
+        return allAppGroups().filter {
+            $0.identifier.contains(bundleID) || $0.identifier.lowercased().contains(short.lowercased())
+        }
+    }
+
     /// Bảo đảm token truy cập cho một file cụ thể trước khi đọc (token thư mục
     /// đôi khi chỉ phủ liệt kê). Grant cache làm lần sau miễn phí.
     @discardableResult
