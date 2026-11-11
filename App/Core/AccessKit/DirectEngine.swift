@@ -572,6 +572,24 @@ final class DirectEngine {
         }
     }
 
+    /// Tên các app KHÔNG có container (app hệ thống gỡ được) — chỉ lấy ĐƯỜNG
+    /// DẪN bằng fsgetpath: kernel trả path theo inode, không cần token nên vẫn
+    /// liệt kê được dù daemon chặn đọc nội dung gói.
+    func fetchBundleOnlyNames(limit: Int = 200) -> [(name: String, path: String)] {
+        var results: [(name: String, path: String)] = []
+        var seen = Set<String>()
+
+        for path in BQCore.listDirectoryEntries("/var/staged_system_apps", maxInode: 6_000_000) {
+            guard results.count < limit else { break }
+            guard path.hasSuffix(".app") else { continue }
+            let name = ((path as NSString).lastPathComponent as NSString).deletingPathExtension
+            guard !name.isEmpty, !seen.contains(name) else { continue }
+            seen.insert(name)
+            results.append((name, path))
+        }
+        return results
+    }
+
     /// Đường dẫn gói `.app` qua lease class-5 (cơ chế lease, khác symlink nên
     /// có thể qua được chỗ symlink bị chặn) — dùng để đọc Info.plist + icon mà
     /// không cần Airlift.

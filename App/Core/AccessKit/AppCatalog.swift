@@ -146,6 +146,45 @@ final class AppCatalog: ObservableObject {
         startContainerScan()
         startBundleScan()
         startBundleLeaseFill()
+        startBundleOnlyScan()
+    }
+
+    /// App hệ thống không có container: lấy tên + đường dẫn gói bằng fsgetpath
+    /// (không cần token) để danh sách đủ như số app thật trên máy.
+    private func startBundleOnlyScan() {
+        guard !UserDefaults.standard.bool(forKey: "bbbbbb.bundleOnlyScanDone") else { return }
+        Task {
+            let found = await Task.detached {
+                DirectEngine.shared.fetchBundleOnlyNames(limit: 200)
+            }.value
+            guard !found.isEmpty else { return }
+
+            var byID: [String: CatalogApp] = [:]
+            for app in apps { byID[app.bundleID] = app }
+            var existingNames = Set(byID.values.map(\.name))
+            var added = 0
+            for item in found {
+                guard !existingNames.contains(item.name) else { continue }
+                let identifier = "bundle:\(item.name)"
+                guard byID[identifier] == nil else { continue }
+                existingNames.insert(item.name)
+                byID[identifier] = CatalogApp(
+                    bundleID: identifier,
+                    name: item.name,
+                    version: "",
+                    type: "System",
+                    path: item.path,
+                    source: .direct
+                )
+                added += 1
+            }
+            if added > 0 {
+                apps = sorted(byID)
+                saveCatalogCache()
+            }
+            UserDefaults.standard.set(true, forKey: "bbbbbb.bundleOnlyScanDone")
+            Log.info("AppCatalog: +\(added) app hệ thống name-only, tổng \(apps.count) ứng dụng", category: .app)
+        }
     }
 
     // MARK: - Icon (tải nền theo lô, cache đĩa)
