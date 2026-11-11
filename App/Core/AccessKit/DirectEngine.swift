@@ -76,11 +76,10 @@ final class DirectEngine {
     /// riêng — đây là đường duy nhất liệt kê được app của máy khác khi app
     /// không mang identity MHA.
     func fetchApplicationsDeep(limit: Int = 600, progress: ((Int, Int) -> Void)? = nil) throws -> [ContainerRecord] {
-        // Cả container người dùng, container hệ thống và container extension.
+        // Chỉ container dữ liệu app (extension nằm ở root khác, liệt kê riêng
+        // để không làm loãng danh sách ứng dụng).
         let directories = [
             "/var/mobile/Containers/Data/Application",
-            "/var/containers/Data/Application",
-            "/var/mobile/Containers/Data/PluginKitPlugin",
         ]
         var records: [ContainerRecord] = []
         var scanned = 0
@@ -136,6 +135,9 @@ final class DirectEngine {
         let candidates = containerCandidates(in: directory)
         var results: [(bundleID: String, name: String, icon: Data?)] = []
         var scanned = 0
+        var dirTokens = 0
+        var fileTokens = 0
+        var plistReads = 0
 
         for candidate in candidates {
             if results.count >= limit { break }
@@ -144,6 +146,7 @@ final class DirectEngine {
 
             // Token cho thư mục bundle (UUID) rồi tìm file .app bên trong.
             let dirHandle = BQCore.escapeTarget(candidate)
+            if dirHandle >= 0 { dirTokens += 1 }
             guard dirHandle >= 0 else { continue }
             let entries = (try? FileManager.default.contentsOfDirectory(atPath: candidate)) ?? []
             guard let appName = entries.first(where: { $0.hasSuffix(".app") }) else { continue }
@@ -154,9 +157,15 @@ final class DirectEngine {
             // cho chính file khi lần đọc đầu bị từ chối.
             var infoData = try? Data(contentsOf: URL(fileURLWithPath: infoPath))
             if infoData == nil {
-                _ = BQCore.escapeTarget(infoPath)
+                if BQCore.escapeTarget(infoPath) >= 0 { fileTokens += 1 }
                 infoData = try? Data(contentsOf: URL(fileURLWithPath: infoPath))
             }
+            if infoData == nil {
+                // Chốt cuối: token cho cả gói .app rồi đọc lại.
+                if BQCore.escapeTarget(appPath) >= 0 { fileTokens += 1 }
+                infoData = try? Data(contentsOf: URL(fileURLWithPath: infoPath))
+            }
+            if infoData != nil { plistReads += 1 }
             guard let data = infoData,
                   let plistObject = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
                   let plist = plistObject as? [String: Any],
@@ -173,6 +182,10 @@ final class DirectEngine {
             results.append((bundleID, name, icon))
         }
 
+        Log.info(
+            "Direct: bundle scan — \(candidates.count) gói, dir token \(dirTokens), file token \(fileTokens), đọc Info.plist \(plistReads)",
+            category: .badquery
+        )
         guard !results.isEmpty else {
             throw Self.error(from: "quét gói ứng dụng")
         }

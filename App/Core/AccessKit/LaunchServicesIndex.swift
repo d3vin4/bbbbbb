@@ -263,6 +263,23 @@ final class LaunchServicesIndex: @unchecked Sendable {
                 offset += 4
             }
 
+            // Hint: kích thước record phổ biến nhất — log để bổ sung layout nếu
+            // bảng hiện tại không khớp bản iOS này.
+            var sizeCounts: [UInt32: Int] = [:]
+            var hintOffset = 0
+            while hintOffset + 8 <= n {
+                let size = rd32(hintOffset + 4)
+                if size >= 0x100, size <= 0x800, size % 4 == 0 {
+                    sizeCounts[size, default: 0] += 1
+                }
+                hintOffset += 4
+            }
+            let hints = sizeCounts.sorted { $0.value > $1.value }
+                .prefix(6)
+                .map { String(format: "0x%x×%d", $0.key, $0.value) }
+                .joined(separator: ", ")
+            Log.info("LaunchServices: size hint [\(hints)]", category: .app)
+
             guard !strings.isEmpty else { return [] }
 
             // Chọn layout map được nhiều container nhất.
