@@ -76,6 +76,7 @@ struct StructuredViewerSheet: View {
         let kind = self.kind
         do {
             text = try await Task.detached { () -> String in
+                _ = DirectEngine.shared.ensureFileAccess(entry.path)
                 let data = try Data(contentsOf: url, options: .mappedIfSafe)
                 let capped = data.prefix(Self.maxBytes)
                 return try Self.normalizedString(from: Data(capped), kind: kind)

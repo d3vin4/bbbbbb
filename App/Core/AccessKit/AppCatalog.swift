@@ -299,11 +299,13 @@ final class AppCatalog: ObservableObject {
         var byID: [String: CatalogApp] = [:]
         for app in apps { byID[app.bundleID] = app }
         for bundle in bundles {
-            if icons[bundle.bundleID] == nil,
-               let data = bundle.icon,
-               let image = UIImage(data: data) {
-                icons[bundle.bundleID] = image
-                persistIcon(image, for: bundle.bundleID)
+            // Icon trong gói là bản @3x (nét hơn icon SPI) → thay nếu lớn hơn.
+            if let data = bundle.icon, let image = UIImage(data: data) {
+                let existing = icons[bundle.bundleID]
+                if existing == nil || image.size.width > existing!.size.width + 8 {
+                    icons[bundle.bundleID] = image
+                    persistIcon(image, for: bundle.bundleID)
+                }
             }
             if let existing = byID[bundle.bundleID] {
                 byID[bundle.bundleID] = CatalogApp(

@@ -52,6 +52,7 @@ final class LaunchServicesIndex: @unchecked Sendable {
 
     private let lock = NSLock()
     private var cachedEntries: [LaunchServicesEntry]?
+    private var containerMap: [String: String] = [:]
     private let entriesFileURL: URL
 
     private init() {
@@ -67,6 +68,7 @@ final class LaunchServicesIndex: @unchecked Sendable {
         if !forceReload, let cachedEntries { return cachedEntries }
         if !forceReload, let disk = loadFromDisk() {
             cachedEntries = disk
+            rebuildContainerMap(disk)
             Log.info("LaunchServices: nạp index \(disk.count) mục (đĩa)", category: .app)
             return disk
         }
@@ -100,10 +102,37 @@ final class LaunchServicesIndex: @unchecked Sendable {
         let parsed = Self.parse(data: data)
         if !parsed.isEmpty {
             cachedEntries = parsed
+            rebuildContainerMap(parsed)
             saveToDisk(parsed)
         }
         Log.info("LaunchServices: parse \(parsed.count) mục từ \(storePath)", category: .app)
         return parsed
+    }
+
+    /// Bundle id của container (theo đường dẫn) — dùng để bỏ hẳn việc escape
+    /// từng container khi quét. Tự nạp index nếu chưa có.
+    func identifier(forContainer path: String) -> String? {
+        _ = entries()
+        lock.lock()
+        defer { lock.unlock() }
+        return containerMap[Self.normalized(path)]
+    }
+
+    private func rebuildContainerMap(_ entries: [LaunchServicesEntry]) {
+        var map: [String: String] = [:]
+        for entry in entries {
+            guard let container = entry.containerPath, !container.isEmpty else { continue }
+            map[Self.normalized(container)] = entry.bundleID
+        }
+        containerMap = map
+    }
+
+    private static func normalized(_ path: String) -> String {
+        let standardized = (path as NSString).standardizingPath
+        if standardized.hasPrefix("/var/") {
+            return "/private" + standardized
+        }
+        return standardized
     }
 
     /// Xoá index đã lưu (dùng khi muốn dò lại từ đầu).

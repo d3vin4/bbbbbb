@@ -95,6 +95,13 @@ final class DirectEngine {
                 scanned += 1
                 progress?(scanned, total)
 
+                // Database iOS đã biết bundle id của container này → khỏi escape
+                // (nhanh gấp bội: không swap + query cho từng container).
+                if let known = LaunchServicesIndex.shared.identifier(forContainer: path) {
+                    records.append(ContainerRecord(identifier: known, kind: .application, path: path))
+                    continue
+                }
+
                 // Container của chính app luôn đọc được → không cần escape.
                 if let identifier = Self.containerIdentifier(at: path) {
                     records.append(ContainerRecord(identifier: identifier, kind: .application, path: path))
@@ -143,9 +150,14 @@ final class DirectEngine {
 
             let appPath = (candidate as NSString).appendingPathComponent(appName)
             let infoPath = (appPath as NSString).appendingPathComponent("Info.plist")
-            let infoHandle = BQCore.escapeTarget(infoPath)
-            guard infoHandle >= 0,
-                  let data = try? Data(contentsOf: URL(fileURLWithPath: infoPath)),
+            // Token thư mục bundle thường đã phủ Info.plist — chỉ xin thêm token
+            // cho chính file khi lần đọc đầu bị từ chối.
+            var infoData = try? Data(contentsOf: URL(fileURLWithPath: infoPath))
+            if infoData == nil {
+                _ = BQCore.escapeTarget(infoPath)
+                infoData = try? Data(contentsOf: URL(fileURLWithPath: infoPath))
+            }
+            guard let data = infoData,
                   let plistObject = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
                   let plist = plistObject as? [String: Any],
                   let bundleID = plist["CFBundleIdentifier"] as? String,
