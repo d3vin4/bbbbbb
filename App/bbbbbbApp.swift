@@ -62,4 +62,18 @@ struct RootView: View {
             )
         }
     }
+
+    /// Thông báo ngay lập tức với mã PIN (hoạt động cả khi app đang mở sheet).
+    private static func postPINNotification(_ pin: String) {
+        let center = UNUserNotificationCenter.current()
+        center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
+            guard granted else { return }
+            let content = UNMutableNotificationContent()
+            content.title = "PIN pairing: \(pin)"
+            content.body = "Nhập mã này trong Settings ▸ Privacy & Security ▸ Developer Mode ▸ Pair with bbbbbb."
+            content.sound = .default
+            let request = UNNotificationRequest(identifier: "bbbbbb.pairing.pin", content: content, trigger: nil)
+            center.add(request, withCompletionHandler: nil)
+        }
+    }
 }
