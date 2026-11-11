@@ -145,6 +145,7 @@ final class AppCatalog: ObservableObject {
         //    bảo đảm danh sách đủ app kèm tên thật.
         startContainerScan()
         startBundleScan()
+        startBundleLeaseFill()
     }
 
     // MARK: - Icon (tải nền theo lô, cache đĩa)
@@ -422,6 +423,50 @@ final class AppCatalog: ObservableObject {
             Log.info(
                 "AppCatalog: quét xong — \(records.count) container, tổng \(apps.count) ứng dụng",
                 category: .badquery
+            )
+        }
+    }
+
+    /// Tên + icon qua lease gói (class-5) — không cần Airlift. Chạy cho các
+    /// app còn thiếu tên thật/icon, tối đa 200 app mỗi vòng.
+    private func startBundleLeaseFill() {
+        let missing = apps.filter { icons[$0.bundleID] == nil && $0.name == $0.bundleID }
+        guard !missing.isEmpty else { return }
+
+        Task {
+            var filled = 0
+            for app in missing.prefix(200) {
+                guard let bundlePath = DirectEngine.shared.bundlePath(forBundleID: app.bundleID) else { continue }
+                let infoPath = (bundlePath as NSString).appendingPathComponent("Info.plist")
+                guard let data = try? Data(contentsOf: URL(fileURLWithPath: infoPath)),
+                      let plistObject = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
+                      let plist = plistObject as? [String: Any] else { continue }
+
+                let name = (plist["CFBundleDisplayName"] as? String)
+                    ?? (plist["CFBundleName"] as? String)
+                let iconData = AppIconExtractor.bundleIcon(appPath: bundlePath, info: plist)
+
+                if let index = apps.firstIndex(where: { $0.bundleID == app.bundleID }) {
+                    let existing = apps[index]
+                    apps[index] = CatalogApp(
+                        bundleID: existing.bundleID,
+                        name: name ?? existing.name,
+                        version: existing.version,
+                        type: existing.type,
+                        path: existing.path,
+                        source: .direct
+                    )
+                }
+                if let iconData, let image = UIImage(data: iconData), icons[app.bundleID] == nil {
+                    icons[app.bundleID] = image
+                    persistIcon(image, for: app.bundleID)
+                }
+                filled += 1
+            }
+            if filled > 0 { saveCatalogCache() }
+            Log.info(
+                "AppCatalog: lease gói class-5 → \(filled)/\(min(missing.count, 200)) app có tên/icon",
+                category: .app
             )
         }
     }

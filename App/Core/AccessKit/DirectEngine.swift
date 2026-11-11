@@ -572,6 +572,14 @@ final class DirectEngine {
         }
     }
 
+    /// Đường dẫn gói `.app` qua lease class-5 (cơ chế lease, khác symlink nên
+    /// có thể qua được chỗ symlink bị chặn) — dùng để đọc Info.plist + icon mà
+    /// không cần Airlift.
+    func bundlePath(forBundleID bundleID: String) -> String? {
+        guard !bundleID.isEmpty else { return nil }
+        return BQCore.activateContainer(forClass: 5, identifier: bundleID, group: false)
+    }
+
     /// Bảo đảm token truy cập cho một file cụ thể trước khi đọc (token thư mục
     /// đôi khi chỉ phủ liệt kê). Grant cache làm lần sau miễn phí.
     @discardableResult
