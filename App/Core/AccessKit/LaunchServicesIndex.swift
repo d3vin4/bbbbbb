@@ -160,13 +160,15 @@ final class LaunchServicesIndex: @unchecked Sendable {
             guard handle >= 0 else { continue }
             let caches = (container as NSString).appendingPathComponent("Library/Caches")
             let names = (try? FileManager.default.contentsOfDirectory(atPath: caches)) ?? []
-            var best: (path: String, date: Date)?
+            // Chọn file LỚN NHẤT (store chính), không phải file mới nhất —
+            // bản -v2 nhỏ chỉ chứa vài mục metadata.
+            var best: (path: String, size: UInt64)?
             for name in names where name.hasPrefix("com.apple.LaunchServices-") && name.hasSuffix(".csstore") {
                 let path = (caches as NSString).appendingPathComponent(name)
                 let attributes = try? FileManager.default.attributesOfItem(atPath: path)
-                let date = (attributes?[.modificationDate] as? Date) ?? Date.distantPast
-                if best == nil || date > best!.date {
-                    best = (path, date)
+                let size = (attributes?[.size] as? UInt64) ?? 0
+                if best == nil || size > best!.size {
+                    best = (path, size)
                 }
             }
             BQCore.endEscape(handle)

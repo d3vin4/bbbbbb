@@ -874,7 +874,7 @@ static int64_t BQEscapeClass2Stage(NSString *target) {
         }
         if (major == 27) {
             return [NSString stringWithFormat:
-                    @"worse_query — class-7 symlink (flags 0x8000000000), dự phòng bad_query class-13 + class-2 · iOS %ld.%ld",
+                    @"worse_query — class-7 symlink (flags 0x8000000000), dự phòng class-12 + class-2 · iOS %ld.%ld",
                     (long)major, (long)minor];
         }
         return [NSString stringWithFormat:
@@ -884,7 +884,7 @@ static int64_t BQEscapeClass2Stage(NSString *target) {
 
     if (major == 27) {
         return [NSString stringWithFormat:
-                @"bad_query — class-13 traversal (không có app group), dự phòng class-2 · iOS %ld.%ld",
+                @"class-2 fallback (không có App Group — cần App Group để dùng worse_query) · iOS %ld.%ld",
                 (long)major, (long)minor];
     }
     return [NSString stringWithFormat:
@@ -895,7 +895,7 @@ static int64_t BQEscapeClass2Stage(NSString *target) {
 + (NSString *)routeSummary {
     if ([self hasMHAIdentity]) return @"MHA-C2";
     if (BQReadAppGroupEntitlement().count) return @"worse_query";
-    return @"bad_query";
+    return @"class-2";
 }
 
 + (NSString *)containerIdentifierAtPath:(NSString *)path {
@@ -1100,19 +1100,6 @@ static int64_t BQEscapeUncached(NSString *target) {
     // 5. Class-2 staged symlink.
     {
         int64_t handle = BQEscapeClass2Stage(target);
-        if (handle >= 0) return handle;
-        last = handle;
-    }
-
-    // Cuối cùng mới tới bad_query (class-13) — worse_query được ưu tiên vì
-    // hỗ trợ rộng hơn trên các bản iOS hiện tại.
-    if ([target isEqualToString:kMGCaches] || [target hasSuffix:@"/Library/Caches"]) {
-        int64_t handle = BQEscapeBadQueryFile(target);
-        if (handle >= 0) return handle;
-        last = handle;
-    }
-    if (target.isAbsolutePath) {
-        int64_t handle = BQEscapeClass13Traversal(target);
         if (handle >= 0) return handle;
         last = handle;
     }
