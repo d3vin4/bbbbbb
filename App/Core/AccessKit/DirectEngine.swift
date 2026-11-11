@@ -404,21 +404,18 @@ final class DirectEngine {
         }
 
         Log.info("Direct: parent escape không được token (đúng như 27.0) — quét fsgetpath", category: .badquery)
-        // Quét tăng dần: nhớ inode cao nhất đã xét, lần sau chỉ quét phần mới
-        // (vẫn lùi 200k để bắt inode được tái sử dụng).
-        let key = "bbbbbb.scanInode." + directory
-        let last = (UserDefaults.standard.object(forKey: key) as? NSNumber)?.uint64Value ?? 0
-        let start = last > 200_000 ? last - 200_000 : 1
-        var scannedUpTo: UInt64 = start
+        // Luôn quét toàn dải inode: mốc tăng dần trước đây khiến lần quét sau
+        // bắt đầu ở cuối dải và KHÔNG thấy container nào (danh sách cũ bị giữ).
+        // Chi phí xử lý đã được giảm bằng map database (không escape từng cái).
+        var scannedUpTo: UInt64 = 1
         let scanned = BQCore.listDirectoryEntries(
             directory,
-            fromInode: start,
+            fromInode: 1,
             maxInode: 6_000_000,
             scannedUpTo: &scannedUpTo
         )
-        UserDefaults.standard.set(NSNumber(value: scannedUpTo), forKey: key)
         Log.info(
-            "Direct: fsgetpath → \(scanned.count) container trong \(directory) (inode \(start)…\(scannedUpTo))",
+            "Direct: fsgetpath → \(scanned.count) container trong \(directory) (inode 1…\(scannedUpTo))",
             category: .badquery
         )
         return scanned
@@ -498,9 +495,9 @@ final class DirectEngine {
         // cây thư mục khi duyệt tệp.
         let handle = BQCore.escapeTarget(target)
         if handle < 0 {
-            // Không lấy được token (ví dụ thư mục cha của container trên 27.0):
+            // Không lấy được token (ví dụ thư mục cha/SystemGroup trên 27.0):
             // vẫn cho duyệt chỉ-đọc qua fsgetpath thay vì báo lỗi truy cập.
-            let entries = BQCore.listDirectoryEntries(target, maxInode: 2_000_000)
+            let entries = BQCore.listDirectoryEntries(target, maxInode: 6_000_000)
             if !entries.isEmpty {
                 Log.info(
                     "Direct: \(target) không có token — duyệt chỉ-đọc qua fsgetpath",

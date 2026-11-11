@@ -24,10 +24,10 @@ enum FileSortKey: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .name: return "Tên"
-        case .size: return "Kích thước"
-        case .date: return "Ngày"
-        case .type: return "Loại"
+        case .name: return L.t("Tên", "Name")
+        case .size: return L.t("Kích thước", "Size")
+        case .date: return L.t("Ngày", "Date")
+        case .type: return L.t("Loại", "Type")
         }
     }
 }

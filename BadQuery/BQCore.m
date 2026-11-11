@@ -1083,21 +1083,7 @@ static int64_t BQEscapeUncached(NSString *target) {
         BQLog(@"worse_query: không có app-group entitlement — chuyển sang bad_query/class-2");
     }
 
-    // 1. bad_query file form for Library/Caches targets.
-    if ([target isEqualToString:kMGCaches] || [target hasSuffix:@"/Library/Caches"]) {
-        int64_t handle = BQEscapeBadQueryFile(target);
-        if (handle >= 0) return handle;
-        last = handle;
-    }
-
-    // 1. Class-13 traversal.
-    if (target.isAbsolutePath) {
-        int64_t handle = BQEscapeClass13Traversal(target);
-        if (handle >= 0) return handle;
-        last = handle;
-    }
-
-    // 2. Class-12 geod symlink.
+    // 1. Class-12 geod symlink (họ worse_query — ưu tiên hơn bad_query).
     {
         int64_t handle = BQEscapeGeodSymlink(target);
         if (handle >= 0) return handle;
@@ -1114,6 +1100,19 @@ static int64_t BQEscapeUncached(NSString *target) {
     // 5. Class-2 staged symlink.
     {
         int64_t handle = BQEscapeClass2Stage(target);
+        if (handle >= 0) return handle;
+        last = handle;
+    }
+
+    // Cuối cùng mới tới bad_query (class-13) — worse_query được ưu tiên vì
+    // hỗ trợ rộng hơn trên các bản iOS hiện tại.
+    if ([target isEqualToString:kMGCaches] || [target hasSuffix:@"/Library/Caches"]) {
+        int64_t handle = BQEscapeBadQueryFile(target);
+        if (handle >= 0) return handle;
+        last = handle;
+    }
+    if (target.isAbsolutePath) {
+        int64_t handle = BQEscapeClass13Traversal(target);
         if (handle >= 0) return handle;
         last = handle;
     }
