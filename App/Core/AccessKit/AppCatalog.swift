@@ -219,7 +219,10 @@ final class AppCatalog: ObservableObject {
     // MARK: - Dữ liệu
 
     private func rebuild(installed: [InstalledAppInfo], records: [ContainerRecord], lsEntries: [LaunchServicesEntry]) {
+        // Nền là danh sách hiện có (từ cache): nguồn mới chỉ BỔ SUNG/CẬP NHẬT,
+        // không bao giờ làm danh sách co lại (lỗi "chỉ còn 3-4 app" trước đây).
         var byID: [String: CatalogApp] = [:]
+        for app in apps { byID[app.bundleID] = app }
 
         // Database iOS: nguồn chính (tên + container path).
         for entry in lsEntries {
