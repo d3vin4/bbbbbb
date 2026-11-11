@@ -282,6 +282,86 @@ final class LaunchServicesIndex: @unchecked Sendable {
 
             guard !strings.isEmpty else { return [] }
 
+            // Tự dò layout: bầu (kích thước record, offset field) theo số lần
+            // field trỏ tới sid của một đường dẫn container / bundle id.
+            var pathSIDs = Set<UInt32>()
+            var bundleSIDs = Set<UInt32>()
+            for (sid, value) in strings {
+                if isDataContainer(value) { pathSIDs.insert(sid) }
+                else if looksLikeBundleID(value) { bundleSIDs.insert(sid) }
+            }
+            var bestVote = 0
+            var bestSize: UInt32 = 0
+            var bestContainerOffset: UInt32 = 0
+            var bestBundleOffset: UInt32 = 0
+            if !pathSIDs.isEmpty, !bundleSIDs.isEmpty {
+                for size in stride(from: UInt32(0x1e0), through: 0x2b0, by: 4) {
+                    for offset in stride(from: UInt32(0), through: 0xa0, by: 4) {
+                        var hits = 0
+                        var scan = 0
+                        while scan + 8 + Int(size) <= n {
+                            if rd32(scan + 4) == size, pathSIDs.contains(rd32(scan + 8 + Int(offset))) {
+                                hits += 1
+                            }
+                            scan += 4
+                        }
+                        guard hits > bestVote else { continue }
+                        // Field bundle id: thử các offset phổ biến quanh 0x0c.
+                        var bundleOffset: UInt32 = 0
+                        var bundleHits = 0
+                        for candidate in stride(from: UInt32(0), through: 0x20, by: 4) {
+                            var count = 0
+                            var probe = 0
+                            while probe + 8 + Int(size) <= n {
+                                if rd32(probe + 4) == size, bundleSIDs.contains(rd32(probe + 8 + Int(candidate))) {
+                                    count += 1
+                                }
+                                probe += 4
+                            }
+                            if count > bundleHits {
+                                bundleHits = count
+                                bundleOffset = candidate
+                            }
+                        }
+                        bestVote = hits
+                        bestSize = size
+                        bestContainerOffset = offset
+                        bestBundleOffset = bundleOffset
+                    }
+                }
+            }
+            if bestVote > 0 {
+                Log.info(
+                    "LaunchServices: auto layout — size 0x\(String(bestSize, radix: 16)) container@0x\(String(bestContainerOffset, radix: 16)) bundle@0x\(String(bestBundleOffset, radix: 16)) (\(bestVote) container)",
+                    category: .app
+                )
+                var autoEntries: [LaunchServicesEntry] = []
+                var seen = Set<String>()
+                var scan = 0
+                while scan + 8 + Int(bestSize) <= n {
+                    if rd32(scan + 4) == bestSize {
+                        let body = scan + 8
+                        if let id = strings[rd32(body + Int(bestBundleOffset))],
+                           looksLikeBundleID(id), !seen.contains(id) {
+                            let container = strings[rd32(body + Int(bestContainerOffset))]
+                                .flatMap { isDataContainer($0) ? $0 : nil }
+                            seen.insert(id)
+                            autoEntries.append(LaunchServicesEntry(
+                                bundleID: id,
+                                name: strings[rd32(body + 0x6c)] ?? strings[rd32(body + 0x68)] ?? id,
+                                containerPath: container,
+                                isExtension: false
+                            ))
+                        }
+                    }
+                    scan += 4
+                }
+                if autoEntries.filter({ $0.containerPath != nil }).count >= bestVote {
+                    Log.info("LaunchServices: auto layout dùng được \(autoEntries.count) mục", category: .app)
+                    return autoEntries
+                }
+            }
+
             // Chọn layout map được nhiều container nhất.
             var best: [LaunchServicesEntry] = []
             var bestMapped = -1
