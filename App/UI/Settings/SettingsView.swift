@@ -12,6 +12,7 @@ struct SettingsView: View {
     @AppStorage(FileBrowserModel.sortAscendingKey) private var filesSortAscending = true
 
     @ObservedObject private var tunnel = TunnelManager.shared
+    @ObservedObject private var webServer = WebFileServer.shared
     @ObservedObject private var pairing = PairingController.shared
 
     @State private var isShowingSetup = false
@@ -20,6 +21,7 @@ struct SettingsView: View {
         List {
             accessSection
             dataSection
+            shareSection
             interfaceSection
             browserSection
             aboutSection
@@ -128,6 +130,40 @@ struct SettingsView: View {
             .pickerStyle(.menu)
         } header: {
             Label(L.t("Giao diện", "Interface"), systemImage: "globe")
+        }
+    }
+
+    // MARK: - Chia sẻ qua LAN
+
+    private var shareSection: some View {
+        Section {
+            Toggle(L.t("WebDAV/HTTP server", "WebDAV/HTTP server"), isOn: Binding(
+                get: { webServer.isRunning },
+                set: { enabled in
+                    if enabled {
+                        webServer.start()
+                    } else {
+                        webServer.stop()
+                    }
+                }
+            ))
+            if webServer.isRunning {
+                LabeledContent(L.t("Địa chỉ", "Address"), value: "http://bbbbbb.local:\(webServer.port)")
+                LabeledContent(L.t("Đăng nhập", "Login"), value: "mobile / bbbbbb")
+            }
+            if let error = webServer.lastError {
+                Text(error)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+            }
+        } header: {
+            Label(L.t("Chia sẻ qua LAN", "LAN sharing"), systemImage: "wifi")
+        } footer: {
+            Text(L.t(
+                "Chỉ chạy khi app đang mở. Mở trong Safari/trình duyệt cùng mạng Wi-Fi.",
+                "Runs only while the app is open. Open it in a browser on the same Wi-Fi."
+            ))
+            .font(.footnote)
         }
     }
 
