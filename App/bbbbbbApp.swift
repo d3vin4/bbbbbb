@@ -1,4 +1,5 @@
 import SwiftUI
+import UserNotifications
 
 @main
 struct bbbbbbApp: App {
@@ -32,6 +33,9 @@ struct RootView: View {
         // màn nào trong app (không phụ thuộc màn onboarding còn mở hay không).
         .onChange(of: pairing.pairingPIN) { _, newValue in
             isShowingPINAlert = newValue != nil
+            // Banner hệ thống: alert của SwiftUI không present được khi đang mở
+            // sheet (màn onboarding) — thông báo thì luôn nổi lên được.
+            if let pin = newValue { Self.postPINNotification(pin) }
         }
         .alert(
             pairing.pairingPIN.map { "PIN: \($0)" } ?? L.t("Mã PIN pairing", "Pairing PIN"),
