@@ -608,6 +608,15 @@ final class DirectEngine {
         return BQCore.escapeTarget(parent) >= 0
     }
 
+    /// Liệt kê không ném lỗi (dùng cho shell/LAN server).
+    func listDirectorySafe(_ path: String) -> [String] {
+        ensureFileAccess(path)
+        let entries = (try? FileManager.default.contentsOfDirectory(atPath: path)) ?? []
+        if !entries.isEmpty { return entries }
+        return BQCore.listDirectoryEntries(path, maxInode: 6_000_000)
+            .map { ($0 as NSString).lastPathComponent }
+    }
+
     func releaseLeases() {
         BQCore.releaseLeases()
     }

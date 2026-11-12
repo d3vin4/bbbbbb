@@ -101,6 +101,11 @@ struct SettingsView: View {
             } label: {
                 Label(L.t("Yêu thích & Gần đây", "Favorites & Recents"), systemImage: "star")
             }
+            NavigationLink {
+                ShellConsoleView()
+            } label: {
+                Label("Shell", systemImage: "terminal")
+            }
             Button(role: .destructive) {
                 // Quét lại từ đầu: xoá index database + mốc quét để lần sau
                 // dò lại đủ (dùng khi danh sách thiếu app).
