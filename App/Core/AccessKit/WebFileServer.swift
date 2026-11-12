@@ -29,7 +29,8 @@ final class WebFileServer: ObservableObject {
         do {
             let nwPort = NWEndpoint.Port(rawValue: preferredPort) ?? .any
             let listener = try NWListener(using: .tcp, on: nwPort)
-            listener.service = NWListener.Service(name: "bbbbbb", type: "_http._tcp")
+            // Không quảng bá Bonjour: đăng ký dịch vụ cần quyền local-network
+            // và bị NoAuth (-65555) giết cả listener. Truy cập bằng IP máy.
             listener.stateUpdateHandler = { [weak self] state in
                 guard let self else { return }
                 switch state {
