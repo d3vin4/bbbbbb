@@ -94,10 +94,6 @@ final class WebFileServer: ObservableObject {
             }
             let method = String(parts[0])
             let path = String(parts[1])
-            guard method == "GET" || method == "HEAD" else {
-                self.respond(connection, status: "405 Method Not Allowed", body: Data("Chỉ hỗ trợ GET/HEAD".utf8))
-                return
-            }
             guard self.isAuthorized(request) else {
                 self.respond(
                     connection,
@@ -107,7 +103,20 @@ final class WebFileServer: ObservableObject {
                 )
                 return
             }
-            self.serve(path: path, method: method, on: connection)
+            switch method {
+            case "GET", "HEAD":
+                self.serve(path: path, method: method, on: connection)
+            case "PUT":
+                self.receiveBody(request: request, chunk: data, connection: connection, path: path)
+            case "DELETE":
+                self.delete(path: path, on: connection)
+            default:
+                self.respond(
+                    connection,
+                    status: "405 Method Not Allowed",
+                    body: Data("Hỗ trợ GET/HEAD/PUT/DELETE".utf8)
+                )
+            }
         }
     }
 
@@ -173,6 +182,94 @@ final class WebFileServer: ObservableObject {
             body: method == "HEAD" ? Data() : fileData,
             contentType: "application/octet-stream"
         )
+    }
+
+    // MARK: - Ghi / xoá (điều khiển file qua LAN)
+
+    private static func contentLength(in request: String) -> Int {
+        for line in request.split(separator: "\r\n") where line.lowercased().hasPrefix("content-length:") {
+            let value = line.split(separator: ":", maxSplits: 1).last.map(String.init) ?? ""
+            return Int(value.trimmingCharacters(in: .whitespaces)) ?? 0
+        }
+        return 0
+    }
+
+    /// Gom đủ body theo Content-Length rồi ghi file (PUT).
+    private func receiveBody(
+        request: String,
+        chunk: Data,
+        connection: NWConnection,
+        path: String,
+        accumulated: Data = Data()
+    ) {
+        var buffer = accumulated
+        buffer.append(chunk)
+
+        let headerEnd = buffer.range(of: Data("\r\n\r\n".utf8))?.upperBound ?? buffer.count
+        let expected = Self.contentLength(in: request)
+        let received = buffer.count > headerEnd ? buffer.count - headerEnd : 0
+
+        guard received >= expected else {
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 1 << 20) { [weak self] data, _, _, _ in
+                guard let self else {
+                    connection.cancel()
+                    return
+                }
+                self.receiveBody(
+                    request: request,
+                    chunk: data ?? Data(),
+                    connection: connection,
+                    path: path,
+                    accumulated: buffer
+                )
+            }
+            return
+        }
+
+        let body = received > 0 ? buffer.subdata(in: headerEnd..<(headerEnd + expected)) : Data()
+        guard let fullPath = safePath(path) else {
+            respond(connection, status: "400 Bad Request", body: Data("Đường dẫn không hợp lệ".utf8))
+            return
+        }
+        _ = DirectEngine.shared.ensureFileAccess(fullPath)
+        let directory = (fullPath as NSString).deletingLastPathComponent
+        try? FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+        do {
+            try body.write(to: URL(fileURLWithPath: fullPath), options: .atomic)
+            Log.info("WebFile: PUT \(path) (\(body.count) bytes)", category: .app)
+            respond(connection, status: "201 Created", body: Data("Đã ghi \(body.count) bytes → /\(path)".utf8))
+        } catch {
+            respond(connection, status: "500 Internal Server Error", body: Data(error.localizedDescription.utf8))
+        }
+    }
+
+    private func delete(path rawPath: String, on connection: NWConnection) {
+        guard let fullPath = safePath(rawPath) else {
+            respond(connection, status: "400 Bad Request", body: Data("Đường dẫn không hợp lệ".utf8))
+            return
+        }
+        _ = DirectEngine.shared.ensureFileAccess(fullPath)
+        do {
+            try FileManager.default.removeItem(atPath: fullPath)
+            Log.info("WebFile: DELETE \(rawPath)", category: .app)
+            respond(connection, status: "200 OK", body: Data("Đã xoá /\(rawPath)".utf8))
+        } catch {
+            respond(connection, status: "500 Internal Server Error", body: Data(error.localizedDescription.utf8))
+        }
+    }
+
+    private func safePath(_ rawPath: String) -> String? {
+        var relative = rawPath
+        if let query = relative.firstIndex(of: "?") {
+            relative = String(relative[..<query])
+        }
+        relative = relative.removingPercentEncoding ?? relative
+        let clean = relative
+            .split(separator: "/")
+            .filter { $0 != ".." && $0 != "." }
+            .joined(separator: "/")
+        guard !clean.isEmpty else { return nil }
+        return (root as NSString).appendingPathComponent(clean)
     }
 
     private func respond(
