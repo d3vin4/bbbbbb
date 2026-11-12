@@ -1,6 +1,8 @@
 import Combine
 import Foundation
 import Network
+import UIKit
+import UserNotifications
 
 /// HTTP file server trong app (kiểu WebDAV-lite, như Filza 27.2): duyệt và
 /// tải file qua LAN — chỉ chạy khi app mở.
@@ -275,6 +277,79 @@ final class WebFileServer: ObservableObject {
             } catch {
                 json(["ok": false, "error": error.localizedDescription])
             }
+        case "apps":
+            let cacheURL = FileManager.default
+                .urls(for: .cachesDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("AppCatalogCache.json")
+            guard let data = try? Data(contentsOf: cacheURL),
+                  let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  let rawApps = object["apps"] as? [[String: Any]] else {
+                json(["ok": false, "error": "chưa có cache danh sách app — mở app trước"])
+                return
+            }
+            let list = rawApps.compactMap { entry -> [String: Any]? in
+                guard let bundleID = entry["bundleID"] as? String else { return nil }
+                return [
+                    "bundleID": bundleID,
+                    "name": entry["name"] as? String ?? bundleID,
+                    "path": entry["path"] as? String ?? "",
+                ]
+            }
+            json(["ok": true, "count": list.count, "apps": list])
+        case "info":
+            let device = UIDevice.current
+            json([
+                "ok": true,
+                "name": device.name,
+                "model": device.model,
+                "system": "\(device.systemName) \(device.systemVersion)",
+                "bundleID": Bundle.main.bundleIdentifier ?? "",
+            ])
+        case "clipboard":
+            if let content = value("content") {
+                UIPasteboard.general.string = content
+                json(["ok": true, "output": "Đã ghi clipboard (\(content.count) ký tự)"])
+            } else {
+                json(["ok": true, "output": UIPasteboard.general.string ?? ""])
+            }
+        case "notify":
+            let title = value("title") ?? "bbbbbb"
+            let body = value("body") ?? ""
+            let center = UNUserNotificationCenter.current()
+            center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
+                guard granted else { return }
+                let content = UNMutableNotificationContent()
+                content.title = title
+                content.body = body
+                content.sound = .default
+                center.add(
+                    UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil),
+                    withCompletionHandler: nil
+                )
+            }
+            json(["ok": true, "output": "Đã gửi thông báo"])
+        case "open":
+            guard let target = value("target") else {
+                json(["ok": false, "error": "thiếu target (URL hoặc bundle id)"])
+                return
+            }
+            DispatchQueue.main.async {
+                if target.contains("://") {
+                    if let url = URL(string: target) {
+                        UIApplication.shared.open(url, options: [:], completionHandler: nil)
+                    }
+                } else if let cls = NSClassFromString("LSApplicationWorkspace") as? NSObject.Type {
+                    let selector = NSSelectorFromString("defaultWorkspace")
+                    if cls.responds(to: selector),
+                       let workspace = cls.perform(selector)?.takeUnretainedValue() as? NSObject {
+                        let openSelector = NSSelectorFromString("openApplicationWithBundleID:")
+                        if workspace.responds(to: openSelector) {
+                            _ = workspace.perform(openSelector, with: target as NSString)
+                        }
+                    }
+                }
+            }
+            json(["ok": true, "output": "Đã yêu cầu mở \(target)"])
         default:
             json(["ok": false, "error": "tool không hợp lệ"])
         }
