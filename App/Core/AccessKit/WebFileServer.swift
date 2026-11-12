@@ -103,6 +103,10 @@ final class WebFileServer: ObservableObject {
                 )
                 return
             }
+            if path.hasPrefix("/mcp") {
+                self.handleMCP(path: path, method: method, on: connection)
+                return
+            }
             switch method {
             case "GET", "HEAD":
                 self.serve(path: path, method: method, on: connection)
@@ -182,6 +186,98 @@ final class WebFileServer: ObservableObject {
             body: method == "HEAD" ? Data() : fileData,
             contentType: "application/octet-stream"
         )
+    }
+
+    // MARK: - MCP (điểm điều khiển cho AI/agent)
+
+    /// `GET /mcp` → danh sách tool; `POST /mcp?tool=…&…` → gọi tool.
+    /// Tool chạy trên engine worse_query + shell nội bộ, trả JSON.
+    private func handleMCP(path: String, method: String, on connection: NWConnection) {
+        let components = URLComponents(string: "http://x" + path)
+        let items = components?.queryItems ?? []
+        func value(_ name: String) -> String? {
+            items.first { $0.name == name }?.value
+        }
+        func json(_ object: [String: Any]) {
+            let data = (try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted])) ?? Data()
+            respond(connection, status: "200 OK", body: data, contentType: "application/json; charset=utf-8")
+        }
+
+        guard method != "GET" else {
+            json([
+                "name": "bbbbbb-mcp",
+                "version": "1.0",
+                "transport": "http",
+                "tools": [
+                    ["name": "shell", "description": "Chạy lệnh file (ls/cd/cat/head/mkdir/touch/rm/cp/mv/df/echo)", "params": ["cmd"]],
+                    ["name": "ls", "description": "Liệt kê thư mục", "params": ["path"]],
+                    ["name": "cat", "description": "Đọc file (tối đa 64 KB)", "params": ["path"]],
+                    ["name": "write", "description": "Ghi/ghi đè file", "params": ["path", "content"]],
+                    ["name": "delete", "description": "Xoá file/thư mục", "params": ["path"]],
+                ],
+            ])
+            return
+        }
+        guard method == "POST" else {
+            json(["ok": false, "error": "GET để xem tools, POST để gọi"])
+            return
+        }
+
+        let shell = MiniShell()
+        switch value("tool") {
+        case "shell":
+            guard let command = value("cmd") else {
+                json(["ok": false, "error": "thiếu cmd"])
+                return
+            }
+            json(["ok": true, "output": shell.run(command)])
+        case "ls":
+            json(["ok": true, "output": shell.run("ls " + (value("path") ?? shell.cwd))])
+        case "cat":
+            guard let path = value("path") else {
+                json(["ok": false, "error": "thiếu path"])
+                return
+            }
+            json(["ok": true, "output": shell.run("cat " + path)])
+        case "write":
+            guard let path = value("path"), let content = value("content") else {
+                json(["ok": false, "error": "thiếu path/content"])
+                return
+            }
+            let full = path.hasPrefix("/")
+                ? path
+                : (NSHomeDirectory() as NSString).appendingPathComponent(path)
+            _ = DirectEngine.shared.ensureFileAccess(full)
+            try? FileManager.default.createDirectory(
+                atPath: (full as NSString).deletingLastPathComponent,
+                withIntermediateDirectories: true
+            )
+            do {
+                try Data(content.utf8).write(to: URL(fileURLWithPath: full), options: .atomic)
+                Log.info("MCP: write \(full)", category: .app)
+                json(["ok": true, "output": "Đã ghi \(full)"])
+            } catch {
+                json(["ok": false, "error": error.localizedDescription])
+            }
+        case "delete":
+            guard let path = value("path") else {
+                json(["ok": false, "error": "thiếu path"])
+                return
+            }
+            let full = path.hasPrefix("/")
+                ? path
+                : (NSHomeDirectory() as NSString).appendingPathComponent(path)
+            _ = DirectEngine.shared.ensureFileAccess(full)
+            do {
+                try FileManager.default.removeItem(atPath: full)
+                Log.info("MCP: delete \(full)", category: .app)
+                json(["ok": true, "output": "Đã xoá \(full)"])
+            } catch {
+                json(["ok": false, "error": error.localizedDescription])
+            }
+        default:
+            json(["ok": false, "error": "tool không hợp lệ"])
+        }
     }
 
     // MARK: - Ghi / xoá (điều khiển file qua LAN)
