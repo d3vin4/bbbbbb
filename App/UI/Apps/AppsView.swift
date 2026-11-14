@@ -8,6 +8,9 @@ struct AppsView: View {
     var body: some View {
         NavigationStack {
             List {
+                if catalog.isScanningContainers {
+                    scanProgressRow
+                }
                 applicationsSection
             }
             .navigationTitle(L.t("Ứng dụng", "Apps"))
@@ -47,6 +50,27 @@ struct AppsView: View {
             .task {
                 await catalog.reloadIfNeeded()
             }
+        }
+    }
+
+    /// Thanh tiến trình quét container (0 → 100%).
+    private var scanProgressRow: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 8) {
+                ProgressView(value: min(max(catalog.scanFraction, 0), 1))
+                HStack {
+                    Text(catalog.scanLabel.isEmpty
+                         ? L.t("Đang quét container…", "Scanning containers…")
+                         : catalog.scanLabel)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text("\(Int((min(max(catalog.scanFraction, 0), 1)) * 100))%")
+                        .font(.footnote.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.vertical, 2)
         }
     }
 

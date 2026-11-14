@@ -59,6 +59,8 @@ final class AppCatalog: ObservableObject {
     @Published private(set) var apps: [CatalogApp] = []
     @Published private(set) var icons: [String: UIImage] = [:]
     @Published private(set) var isScanningContainers = false
+    @Published private(set) var scanFraction: Double = 0
+    @Published private(set) var scanLabel = ""
     @Published var filter: AppFilter = .all
     @Published var searchText = ""
 
@@ -201,6 +203,8 @@ final class AppCatalog: ObservableObject {
         }
 
         isScanningContainers = true
+        scanFraction = 0
+        scanLabel = L.t("Đang dò container…", "Scanning containers…")
 
         Task {
             let records = try? await Task.detached { () -> [ContainerRecord] in
@@ -212,10 +216,17 @@ final class AppCatalog: ObservableObject {
                     Task { @MainActor in
                         self.mergePartial(partial)
                     }
+                } onFraction: { fraction, label in
+                    Task { @MainActor in
+                        self.scanFraction = min(max(fraction, 0), 0.99)
+                        self.scanLabel = label
+                    }
                 }
             }.value
 
             isScanningContainers = false
+            scanFraction = 1
+            scanLabel = L.t("Hoàn tất", "Done")
 
             guard let records, !records.isEmpty else {
                 Log.info("AppCatalog: quét container không ra kết quả", category: .worseQuery)

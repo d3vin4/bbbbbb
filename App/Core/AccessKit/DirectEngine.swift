@@ -50,12 +50,18 @@ final class DirectEngine {
     func fetchApplicationsDeep(
         limit: Int = 600,
         progress: ((Int, Int) -> Void)? = nil,
-        onPartial: (([ContainerRecord]) -> Void)? = nil
+        onPartial: (([ContainerRecord]) -> Void)? = nil,
+        onFraction: ((Double, String) -> Void)? = nil
     ) throws -> [ContainerRecord] {
+        onFraction?(0.02, "Đang dò container…")
         let candidates = containerCandidates(
             in: "/var/mobile/Containers/Data/Application",
             maxInode: 6_000_000
-        )
+        ) { done, total in
+            // Giai đoạn 1 (dò inode) chiếm 0–50% thanh tiến trình.
+            let fraction = total > 0 ? 0.05 + 0.45 * (Double(done) / Double(total)) : 0.05
+            onFraction?(fraction, "Đang dò container — khối \(done)/\(total)")
+        }
         var records: [ContainerRecord] = []
         var scanned = 0
 
@@ -75,6 +81,11 @@ final class DirectEngine {
             // ngay (không phải chờ quét xong cả 12M inode).
             if scanned % 50 == 0 {
                 onPartial?(records)
+            }
+            if scanned % 10 == 0, !candidates.isEmpty {
+                // Giai đoạn 2 (đọc định danh) chiếm 50–100%.
+                let fraction = 0.5 + 0.5 * (Double(scanned) / Double(candidates.count))
+                onFraction?(min(fraction, 0.99), "Đang đọc container \(scanned)/\(candidates.count)")
             }
         }
 
@@ -227,7 +238,11 @@ final class DirectEngine {
 
     /// Thẻ con của thư mục: xin token cho thư mục cha để đọc thẳng danh sách
     /// (nhanh), nếu không được thì dò inode toàn volume.
-    private func containerCandidates(in directory: String, maxInode: UInt64) -> [String] {
+    private func containerCandidates(
+        in directory: String,
+        maxInode: UInt64,
+        onChunk: ((Int, Int) -> Void)? = nil
+    ) -> [String] {
         if BQCore.grant(forPath: directory) >= 0 {
             if let entries = try? FileManager.default.contentsOfDirectory(atPath: directory),
                !entries.isEmpty {
@@ -247,8 +262,12 @@ final class DirectEngine {
         var collected: [String] = []
         let chunk: UInt64 = 500_000
         let label = (directory as NSString).lastPathComponent
+        let totalChunks = Int((maxInode + chunk - 1) / chunk)
+        var chunkIndex = 0
         var start: UInt64 = 1
         while start <= maxInode {
+            chunkIndex += 1
+            onChunk?(chunkIndex, totalChunks)
             let end = min(start + chunk - 1, maxInode)
             var scannedUpTo: UInt64 = start
             let part = BQCore.listDirectoryEntries(
