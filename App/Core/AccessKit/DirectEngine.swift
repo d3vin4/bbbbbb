@@ -63,12 +63,12 @@ final class DirectEngine {
             scanned += 1
             progress?(scanned, candidates.count)
 
-            if let identifier = identifier(ofContainerAt: path) {
+            if let identifier = containerIdentifier(at: path) {
                 records.append(ContainerRecord(identifier: identifier, kind: .application, path: path))
                 continue
             }
             guard BQCore.grant(forPath: path) >= 0 else { continue }
-            if let identifier = identifier(ofContainerAt: path) {
+            if let identifier = containerIdentifier(at: path) {
                 records.append(ContainerRecord(identifier: identifier, kind: .application, path: path))
             }
         }
@@ -91,12 +91,12 @@ final class DirectEngine {
 
         for path in candidates {
             if records.count >= limit { break }
-            if let identifier = identifier(ofContainerAt: path) {
+            if let identifier = containerIdentifier(at: path) {
                 records.append(ContainerRecord(identifier: identifier, kind: .appGroup, path: path))
                 continue
             }
             guard BQCore.grant(forPath: path) >= 0 else { continue }
-            if let identifier = identifier(ofContainerAt: path) {
+            if let identifier = containerIdentifier(at: path) {
                 records.append(ContainerRecord(identifier: identifier, kind: .appGroup, path: path))
             }
         }
@@ -164,7 +164,7 @@ final class DirectEngine {
     func listDirectory(at path: String) throws -> [String] {
         let url = URL(fileURLWithPath: path)
         if let entries = try? FileManager.default.contentsOfDirectory(
-            atPath: url.path,
+            at: url,
             includingPropertiesForKeys: nil,
             options: []
         ) {
@@ -183,6 +183,18 @@ final class DirectEngine {
             .map { ($0 as NSString).lastPathComponent }
     }
 
+    /// App Group của một ứng dụng: khớp bundle id trong identifier của group
+    /// (dạng phổ biến `group.<bundle-id>` hoặc `group.<team>.<app>…`).
+    func appGroups(forBundleID bundleID: String) -> [ContainerRecord] {
+        guard !bundleID.isEmpty else { return [] }
+        let short = bundleID.split(separator: ".").last.map(String.init) ?? bundleID
+        let groups = (try? fetchAppGroups(limit: 900)) ?? []
+        return groups.filter {
+            $0.identifier.contains(bundleID)
+                || $0.identifier.lowercased().contains(short.lowercased())
+        }
+    }
+
     /// Đường dẫn container của một bundle id (khi danh sách chưa có path).
     func resolveContainerPath(identifier: String, kind: ContainerRecord.Kind) -> String? {
         guard !identifier.isEmpty else { return nil }
@@ -191,11 +203,11 @@ final class DirectEngine {
             : "/var/mobile/Containers/Data/Application"
 
         for path in containerCandidates(in: directory, maxInode: 12_000_000) {
-            if let found = identifier(ofContainerAt: path), found == identifier {
+            if let found = containerIdentifier(at: path), found == identifier {
                 return path
             }
             guard BQCore.grant(forPath: path) >= 0 else { continue }
-            if let found = identifier(ofContainerAt: path), found == identifier {
+            if let found = containerIdentifier(at: path), found == identifier {
                 return path
             }
         }
@@ -240,7 +252,7 @@ final class DirectEngine {
     }
 
     /// Định danh container (xattr, sau đó mới tới metadata plist).
-    private func identifier(ofContainerAt path: String) -> String? {
+    private func containerIdentifier(at path: String) -> String? {
         BQCore.containerIdentifier(atPath: path)
     }
 
