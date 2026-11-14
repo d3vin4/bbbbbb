@@ -49,7 +49,8 @@ final class DirectEngine {
     /// rồi xin token worse_query cho từng container để đọc định danh (xattr).
     func fetchApplicationsDeep(
         limit: Int = 600,
-        progress: ((Int, Int) -> Void)? = nil
+        progress: ((Int, Int) -> Void)? = nil,
+        onPartial: (([ContainerRecord]) -> Void)? = nil
     ) throws -> [ContainerRecord] {
         let candidates = containerCandidates(
             in: "/var/mobile/Containers/Data/Application",
@@ -65,11 +66,15 @@ final class DirectEngine {
 
             if let identifier = containerIdentifier(at: path) {
                 records.append(ContainerRecord(identifier: identifier, kind: .application, path: path))
-                continue
-            }
-            guard BQCore.grant(forPath: path) >= 0 else { continue }
-            if let identifier = containerIdentifier(at: path) {
+            } else if BQCore.grant(forPath: path) >= 0,
+                      let identifier = containerIdentifier(at: path) {
                 records.append(ContainerRecord(identifier: identifier, kind: .application, path: path))
+            }
+
+            // Hiện dần: báo cáo nửa chừng mỗi 50 container để danh sách lấp đầy
+            // ngay (không phải chờ quét xong cả 12M inode).
+            if scanned % 50 == 0 {
+                onPartial?(records)
             }
         }
 

@@ -203,6 +203,10 @@ final class AppCatalog: ObservableObject {
                     if scanned % 25 == 0 {
                         Log.info("AppCatalog: quét \(scanned)/\(total) container", category: .worseQuery)
                     }
+                } onPartial: { partial in
+                    Task { @MainActor in
+                        self.mergePartial(partial)
+                    }
                 }
             }.value
 
@@ -213,31 +217,31 @@ final class AppCatalog: ObservableObject {
                 return
             }
 
-            var byID: [String: CatalogApp] = [:]
-            for app in apps { byID[app.bundleID] = app }
-            for record in records { merge(record, into: &byID) }
+            mergePartial(records)
 
             // App hệ thống không có container: chỉ có tên gói (fsgetpath).
-            var existingNames = Set(byID.values.map(\.name))
+            var existingNames = Set(apps.map(\.name))
             var added = 0
             let bundleNames = await Task.detached {
                 DirectEngine.shared.fetchBundleOnlyNames(limit: 200)
             }.value
-            for item in bundleNames {
-                guard !existingNames.contains(item.name) else { continue }
+            for item in bundleNames where !existingNames.contains(item.name) {
                 existingNames.insert(item.name)
-                byID["bundle:\(item.name)"] = CatalogApp(
+                apps.append(CatalogApp(
                     bundleID: "bundle:\(item.name)",
                     name: item.name,
                     version: "",
                     type: "System",
                     path: item.path,
                     source: .direct
-                )
+                ))
                 added += 1
             }
 
+            var byID: [String: CatalogApp] = [:]
+            for app in apps { byID[app.bundleID] = app }
             apps = sorted(byID)
+
             saveCatalogCache()
             UserDefaults.standard.set(Date(), forKey: Self.lastScanKey)
             UserDefaults.standard.set(Self.currentScanVersion, forKey: Self.scanVersionKey)
@@ -246,6 +250,16 @@ final class AppCatalog: ObservableObject {
                 category: .worseQuery
             )
         }
+    }
+
+    /// Hợp nhất kết quả quét vào danh sách đang hiện — gọi nửa chừng để danh
+    /// sách lấp đầy ngay, không phải chờ quét xong.
+    private func mergePartial(_ records: [ContainerRecord]) {
+        guard !records.isEmpty else { return }
+        var byID: [String: CatalogApp] = [:]
+        for app in apps { byID[app.bundleID] = app }
+        for record in records { merge(record, into: &byID) }
+        apps = sorted(byID)
     }
 
     // MARK: - Icon cache
