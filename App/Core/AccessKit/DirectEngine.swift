@@ -78,15 +78,15 @@ final class DirectEngine {
     func fetchApplicationsDeep(limit: Int = 600, progress: ((Int, Int) -> Void)? = nil) throws -> [ContainerRecord] {
         // Chỉ container dữ liệu app (extension nằm ở root khác, liệt kê riêng
         // để không làm loãng danh sách ứng dụng).
-        let directories = [
-            "/var/mobile/Containers/Data/Application",
-        ]
         var records: [ContainerRecord] = []
         var scanned = 0
         var total = 0
 
-        for directory in directories {
-            let candidates = containerCandidates(in: directory)
+        for directory in [
+            "/var/mobile/Containers/Data/Application",
+        ] {
+            // Trần inode cao hơn (12M) để không bỏ sót container có inode lớn.
+            let candidates = containerCandidates(in: directory, maxInode: 12_000_000)
             total += candidates.count
 
             for path in candidates {
@@ -389,7 +389,7 @@ final class DirectEngine {
     ///
     /// Ưu tiên escape thư mục cha (class-7) rồi đọc thư mục — nhanh và đủ.
     /// Nếu không được thì quét fsgetpath (chậm hơn nhiều).
-    private func containerCandidates(in directory: String) -> [String] {
+    private func containerCandidates(in directory: String, maxInode: UInt64 = 6_000_000) -> [String] {
         let handle = BQCore.escapeTarget(directory)
         if handle >= 0 {
             defer { BQCore.endEscape(handle) }
@@ -411,7 +411,7 @@ final class DirectEngine {
         let scanned = BQCore.listDirectoryEntries(
             directory,
             fromInode: 1,
-            maxInode: 6_000_000,
+            maxInode: maxInode,
             scannedUpTo: &scannedUpTo
         )
         Log.info(
@@ -579,13 +579,22 @@ final class DirectEngine {
         var results: [(name: String, path: String)] = []
         var seen = Set<String>()
 
-        for path in BQCore.listDirectoryEntries("/var/staged_system_apps", maxInode: 6_000_000) {
-            guard results.count < limit else { break }
-            guard path.hasSuffix(".app") else { continue }
-            let name = ((path as NSString).lastPathComponent as NSString).deletingPathExtension
-            guard !name.isEmpty, !seen.contains(name) else { continue }
-            seen.insert(name)
-            results.append((name, path))
+        // App hệ thống: chúng nằm trong /System/Applications (không có container
+        // dữ liệu riêng) và các gói staged — tên lấy qua fsgetpath (không cần
+        // token nên vẫn thấy dù daemon chặn đọc nội dung gói).
+        for directory in [
+            "/var/staged_system_apps",
+            "/System/Applications",
+            "/Applications",
+        ] {
+            for path in BQCore.listDirectoryEntries(directory, maxInode: 12_000_000) {
+                guard results.count < limit else { return results }
+                guard path.hasSuffix(".app") else { continue }
+                let name = ((path as NSString).lastPathComponent as NSString).deletingPathExtension
+                guard !name.isEmpty, !seen.contains(name) else { continue }
+                seen.insert(name)
+                results.append((name, path))
+            }
         }
         return results
     }
