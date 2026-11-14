@@ -71,15 +71,6 @@ struct AppDetailView: View {
                     }
                 }
                 .disabled(isWorking)
-
-                if AirliftEngine.shared.hasPairing {
-                    Button(role: .destructive) {
-                        Task { await uninstall() }
-                    } label: {
-                        Text(L.t("Gỡ cài đặt", "Uninstall"))
-                    }
-                    .disabled(isWorking)
-                }
             }
 
             if let activatedPath {
@@ -156,7 +147,7 @@ struct AppDetailView: View {
             DirectEngine.shared.appGroups(forBundleID: bundleID)
         }.value
         groups = found
-        Log.info("Direct: \(bundleID) có \(found.count) App Group", category: .badquery)
+        Log.info("Direct: \(bundleID) có \(found.count) App Group", category: .worseQuery)
     }
 
     @ViewBuilder
@@ -187,18 +178,7 @@ struct AppDetailView: View {
                 return (activated, entries.count)
             }.value
             activatedPath = result.0
-            Log.info("Direct: kích hoạt \(app.bundleID) → \(result.0) (\(result.1) mục)", category: .badquery)
-        } catch {
-            localError = error.localizedDescription
-        }
-    }
-
-    private func uninstall() async {
-        isWorking = true
-        localError = nil
-        defer { isWorking = false }
-        do {
-            try await catalog.uninstall(app)
+            Log.info("Direct: kích hoạt \(app.bundleID) → \(result.0) (\(result.1) mục)", category: .worseQuery)
         } catch {
             localError = error.localizedDescription
         }

@@ -51,7 +51,7 @@ struct LogsView: View {
                     ContentUnavailableView(
                         "Không có log",
                         systemImage: "text.alignleft",
-                        description: Text("Logs từ Airlift, BadQuery, VPN, Pairing và File Manager sẽ hiển thị tại đây.")
+                        description: Text(L.t("Log của worse_query, File Manager và các thao tác khác sẽ hiện tại đây.", "Logs from worse_query, the file browser and other actions appear here."))
                     )
                 }
             }

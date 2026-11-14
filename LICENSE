@@ -1,0 +1,15 @@
+bbbbbb — file manager cho iOS dựa trên kỹ thuật worse_query.
+
+Bản quyền: GPL-3.0-or-later (kế thừa từ kỹ thuật worse_query của
+Taj C — https://github.com/forcequitOS/worse_query).
+
+Chương trình này là phần mềm tự do: bạn có thể tái phân phối và/hoặc sửa đổi
+nó theo điều khoản của Giấy phép Công cộng GNU phiên bản 3, hoặc phiên bản
+sau, như đã công bố bởi Free Software Foundation.
+
+Chương trình này được phân phối với hy vọng rằng nó sẽ hữu ích, NHƯNG KHÔNG
+BẢO ĐẢM; kể cả KHÔNG CÓ BẢO ĐẢM KIM LOẠN ĐỘC ĐẶC BIỆT hoặc PHÙ HỢP ĐỂ
+BÁN. Xem Giấy phép Công cộng GNU phiên bản 3 để biết thêm chi tiết.
+
+Bản đầy đủ: https://www.gnu.org/licenses/gpl-3.0.txt
+Xem thêm tài liệu pháp lý: NOTICES.md

@@ -1,9 +1,9 @@
 import Foundation
 
-/// Static information about the OS versions bbbbbb officially supports.
+/// Thông tin tĩnh về các phiên bản iOS mà bbbbbb hỗ trợ.
 ///
-/// bbbbbb targets iOS 27.x (27.0 – 27.2) where the container-access sandbox escape
-/// (worse_query lineage) and on-device Developer Mode pairing are available.
+/// App chỉ dùng kỹ thuật worse_query (xem NOTICES.md), đã kiểm chứng trên
+/// iOS 26.x và 27.x.
 enum SupportMatrix {
     static let supportedMajor = 27
     static let supportedMinorRange = 0...2

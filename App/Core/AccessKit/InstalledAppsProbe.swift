@@ -1,3 +1,4 @@
+import Foundation
 import UIKit
 
 /// Ứng dụng đã cài, đọc từ LaunchServices (dịch vụ hệ thống).
@@ -9,12 +10,12 @@ struct InstalledAppInfo: @unchecked Sendable {
 
 /// Liệt kê ứng dụng đã cài mà không cần identity MHA, không cần tunnel.
 ///
-/// Dùng `LSApplicationWorkspace` (API private của hệ thống) — trả về đủ app
-/// kèm tên hiển thị và icon. Mọi lời gọi đều được kiểm tra `responds(to:)`
-/// trước nên không crash nếu API biến mất trong iOS mới.
+/// Dùng `LSApplicationWorkspace` (API private của hệ thống) — trả về app kèm
+/// tên hiển thị và icon. Mọi lời gọi đều kiểm tra `responds(to:)` trước nên
+/// không crash nếu API biến mất trong iOS mới.
 ///
-/// Lưu ý bộ nhớ: `perform` trả về đối tượng **autoreleased**, nên chỉ được
-/// lấy bằng `takeUnretainedValue()`; dùng `takeRetainedValue()` sẽ over-release
+/// Lưu ý bộ nhớ: `perform` trả về đối tượng **autoreleased**, nên chỉ được lấy
+/// bằng `takeUnretainedValue()`; dùng `takeRetainedValue()` sẽ over-release
 /// và crash trong `objc_release`.
 enum InstalledAppsProbe {
     static func installedApps() -> [InstalledAppInfo] {
@@ -37,7 +38,7 @@ enum InstalledAppsProbe {
             for proxy in proxies {
                 guard let bundleID = stringValue(proxy, keys: ["bundleIdentifier"]) else { continue }
                 let name = stringValue(proxy, keys: ["localizedName", "name", "bundleDisplayName"]) ?? bundleID
-                let icon = imageValue(proxy, keys: ["icon", "applicationIcon", "bundleIcon"])
+                let icon = AppIconExtractor.springBoardIcon(bundleID: bundleID)
                 result.append(InstalledAppInfo(bundleID: bundleID, name: name, icon: icon))
             }
             return result
@@ -60,17 +61,6 @@ enum InstalledAppsProbe {
             guard let value = object.perform(selector)?.takeUnretainedValue() as? String,
                   !value.isEmpty else { continue }
             return value
-        }
-        return nil
-    }
-
-    private static func imageValue(_ object: NSObject, keys: [String]) -> UIImage? {
-        for key in keys {
-            let selector = NSSelectorFromString(key)
-            guard object.responds(to: selector) else { continue }
-            if let image = object.perform(selector)?.takeUnretainedValue() as? UIImage {
-                return image
-            }
         }
         return nil
     }

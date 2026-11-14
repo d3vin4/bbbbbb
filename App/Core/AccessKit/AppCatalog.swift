@@ -2,11 +2,9 @@ import Combine
 import Foundation
 import UIKit
 
-/// Ứng dụng đã cài, hợp nhất từ nhiều nguồn.
+/// Ứng dụng trong danh sách.
 struct CatalogApp: Identifiable, Hashable, Codable {
     enum Source: String, Hashable, Codable {
-        /// Giữ lại để cache cũ vẫn giải mã được.
-        case airlift
         case direct
     }
 
@@ -28,12 +26,10 @@ private struct CatalogCachePayload: Codable {
     let savedAt: Date
 }
 
-/// Nguồn dữ liệu cho danh sách ứng dụng.
+/// Danh sách ứng dụng cho màn chính.
 ///
-/// - `LaunchServices`: danh sách app đã cài kèm tên + icon — tức thì, không cần
-///   identity MHA, không cần tunnel.
-/// - `Container engine`: MCM enumerate (nhanh, cần identity MHA) hoặc quét sâu
-///   worse_query (class-7) để gắn đường dẫn container cho từng ứng dụng.
+/// - Tên + icon: đọc từ LaunchServices (hệ thống cho phép).
+/// - Container path: quét bằng worse_query + fsgetpath (chạy nền).
 @MainActor
 final class AppCatalog: ObservableObject {
     enum LoadState: Equatable {
@@ -68,10 +64,9 @@ final class AppCatalog: ObservableObject {
 
     private var didLoadOnce = false
     private var isReloading = false
-    private var isFetchingIcons = false
     private static let lastScanKey = "bbbbbb.containerScanCompletedAt"
     private static let scanVersionKey = "bbbbbb.containerScanVersion"
-    private static let currentScanVersion = 2
+    private static let currentScanVersion = 3
     private let iconDirectory: URL
     private let cacheFileURL: URL
 
@@ -108,194 +103,41 @@ final class AppCatalog: ObservableObject {
         guard !isReloading else { return }
         isReloading = true
         defer { isReloading = false }
+
         state = .loading
 
-        // 1) Database ứng dụng của iOS (LaunchServices csstore): tên + container
-        //    path cho mọi app — không cần quét từng container (đọc 1 lần, nhớ lại).
-        let lsEntries = await Task.detached { LaunchServicesIndex.shared.entries() }.value
-        Log.info("AppCatalog: database iOS → \(lsEntries.count) ứng dụng", category: .app)
+        // Danh sách + tên + icon từ LaunchServices (tức thì).
+        let installed = await Task.detached { InstalledAppsProbe.installedApps() }.value
+        Log.info("AppCatalog: LaunchServices → \(installed.count) ứng dụng", category: .app)
 
-        // 2) LaunchServices API (nếu máy cho phép) — bổ sung icon.
-        //    Chạy trên main — API này không an toàn đa luồng, và rất nhanh.
-        let installed = InstalledAppsProbe.installedApps()
-
-        // 3) Container engine: enumerate nhanh (MHA-C2) để có sẵn đường dẫn.
-        var records: [ContainerRecord] = []
-        if DirectEngine.shared.capabilityReport().mcmAvailable {
-            records = (try? await Task.detached { try DirectEngine.shared.fetchApplicationsFast(limit: 600) }.value) ?? []
-        }
-
-        if !lsEntries.isEmpty || !installed.isEmpty || !records.isEmpty {
-            rebuild(installed: installed, records: records, lsEntries: lsEntries)
+        if !installed.isEmpty {
+            rebuild(installed: installed, records: [])
             state = .loaded
             saveCatalogCache()
+        } else if !apps.isEmpty {
+            state = .loaded
         } else {
             state = .failed(L.t("Không liệt kê được ứng dụng nào.", "Could not list any app."))
         }
 
-        // 3) Nếu chọn AirLift: tên + icon từ InstallationProxy.
-        if AccessMethod.current == .airlift {
-            await mergeAirliftCatalog()
-        }
-
-        // 4) Icon còn thiếu: tải nền theo lô (tunnel ấm), hiện dần lên danh sách.
-        startIconFetch()
-
-        // 5) Quét sâu container (worse_query) + quét gói .app — chạy nền,
-        //    bảo đảm danh sách đủ app kèm tên thật.
         startContainerScan()
-        startBundleScan()
-        startBundleLeaseFill()
-        startBundleOnlyScan()
-    }
-
-    /// App hệ thống không có container: lấy tên + đường dẫn gói bằng fsgetpath
-    /// (không cần token) để danh sách đủ như số app thật trên máy.
-    private func startBundleOnlyScan() {
-        guard !UserDefaults.standard.bool(forKey: "bbbbbb.bundleOnlyScanDone") else { return }
-        Task {
-            let found = await Task.detached {
-                DirectEngine.shared.fetchBundleOnlyNames(limit: 200)
-            }.value
-            guard !found.isEmpty else { return }
-
-            var byID: [String: CatalogApp] = [:]
-            for app in apps { byID[app.bundleID] = app }
-            var existingNames = Set(byID.values.map(\.name))
-            var added = 0
-            for item in found {
-                guard !existingNames.contains(item.name) else { continue }
-                let identifier = "bundle:\(item.name)"
-                guard byID[identifier] == nil else { continue }
-                existingNames.insert(item.name)
-                byID[identifier] = CatalogApp(
-                    bundleID: identifier,
-                    name: item.name,
-                    version: "",
-                    type: "System",
-                    path: item.path,
-                    source: .direct
-                )
-                added += 1
-            }
-            if added > 0 {
-                apps = sorted(byID)
-                saveCatalogCache()
-            }
-            UserDefaults.standard.set(true, forKey: "bbbbbb.bundleOnlyScanDone")
-            Log.info("AppCatalog: +\(added) app hệ thống name-only, tổng \(apps.count) ứng dụng", category: .app)
-        }
-    }
-
-    // MARK: - Icon (tải nền theo lô, cache đĩa)
-
-    private func startIconFetch() {
-        guard !isFetchingIcons else { return }
-        let missing = apps.map(\.bundleID).filter { icons[$0] == nil }
-        guard !missing.isEmpty else { return }
-
-        if AirliftEngine.shared.hasPairing {
-            isFetchingIcons = true
-            Task {
-                var remaining = missing
-                let batchSize = 40
-                var failures = 0
-                while !remaining.isEmpty {
-                    let batch = Array(remaining.prefix(batchSize))
-                    remaining.removeFirst(batch.count)
-                    let fetched = await AirliftServices.shared.fetchIcons(bundleIDs: batch)
-                    if fetched.isEmpty {
-                        failures += 1
-                        if failures >= 2 { break }
-                        continue
-                    }
-                    failures = 0
-                    applyIcons(fetched)
-                }
-                isFetchingIcons = false
-                Log.info("AppCatalog: icon còn thiếu \(remaining.count), đã có \(icons.count)", category: .airlift)
-            }
-            return
-        }
-
-        // Không có Airlift: icon qua SPI của UIKit (1 lời gọi/app, không cần
-        // token); icon trong gói .app do bundle scan bổ sung sau.
-        isFetchingIcons = true
-        Task {
-            var filled = 0
-            for (index, bundleID) in missing.enumerated() {
-                if let image = AppIconExtractor.springBoardIcon(bundleID: bundleID) {
-                    icons[bundleID] = image
-                    persistIcon(image, for: bundleID)
-                    filled += 1
-                }
-                if index % 25 == 0 { await Task.yield() }
-            }
-            isFetchingIcons = false
-            Log.info("AppCatalog: icon SPI → \(filled)/\(missing.count)", category: .app)
-        }
-    }
-
-    private func applyIcons(_ fetched: [String: Data]) {
-        for (bundleID, data) in fetched {
-            guard let image = UIImage(data: data) else { continue }
-            icons[bundleID] = image
-            persistIcon(image, for: bundleID)
-        }
-    }
-
-    /// Gỡ cài đặt một ứng dụng (qua AirLift / InstallationProxy).
-    func uninstall(_ app: CatalogApp) async throws {
-        guard AirliftEngine.shared.hasPairing else {
-            throw AirliftServicesError.failed(
-                L.t("Gỡ cài đặt cần AirLift (đã pair thiết bị).", "Uninstall needs AirLift (paired device).")
-            )
-        }
-        try await AirliftServices.shared.uninstall(bundleID: app.bundleID)
-        apps.removeAll { $0.bundleID == app.bundleID }
-        saveCatalogCache()
     }
 
     // MARK: - Dữ liệu
 
-    private func rebuild(installed: [InstalledAppInfo], records: [ContainerRecord], lsEntries: [LaunchServicesEntry]) {
-        // Nền là danh sách hiện có (từ cache): nguồn mới chỉ BỔ SUNG/CẬP NHẬT,
-        // không bao giờ làm danh sách co lại (lỗi "chỉ còn 3-4 app" trước đây).
+    private func rebuild(installed: [InstalledAppInfo], records: [ContainerRecord]) {
         var byID: [String: CatalogApp] = [:]
         for app in apps { byID[app.bundleID] = app }
 
-        // Database iOS: nguồn chính (tên + container path).
-        for entry in lsEntries {
-            byID[entry.bundleID] = CatalogApp(
-                bundleID: entry.bundleID,
-                name: entry.name,
+        for info in installed {
+            byID[info.bundleID] = CatalogApp(
+                bundleID: info.bundleID,
+                name: info.name,
                 version: "",
-                type: entry.isExtension ? "Extension" : "Application",
-                path: entry.containerPath,
+                type: "Application",
+                path: nil,
                 source: .direct
             )
-        }
-
-        for info in installed {
-            if let existing = byID[info.bundleID] {
-                byID[info.bundleID] = CatalogApp(
-                    bundleID: existing.bundleID,
-                    name: info.name,
-                    version: existing.version,
-                    type: existing.type,
-                    path: existing.path,
-                    source: .direct
-                )
-            } else {
-                byID[info.bundleID] = CatalogApp(
-                    bundleID: info.bundleID,
-                    name: info.name,
-                    version: "",
-                    type: "Application",
-                    path: nil,
-                    source: .direct
-                )
-            }
             if let icon = info.icon {
                 icons[info.bundleID] = icon
                 persistIcon(icon, for: info.bundleID)
@@ -338,102 +180,17 @@ final class AppCatalog: ObservableObject {
         }
     }
 
-    private func mergeBundles(_ bundles: [(bundleID: String, name: String, icon: Data?)]) {
-        var byID: [String: CatalogApp] = [:]
-        for app in apps { byID[app.bundleID] = app }
-        for bundle in bundles {
-            // Icon trong gói là bản @3x (nét hơn icon SPI) → thay nếu lớn hơn.
-            if let data = bundle.icon, let image = UIImage(data: data) {
-                let existing = icons[bundle.bundleID]
-                if existing == nil || image.size.width > existing!.size.width + 8 {
-                    icons[bundle.bundleID] = image
-                    persistIcon(image, for: bundle.bundleID)
-                }
-            }
-            if let existing = byID[bundle.bundleID] {
-                byID[bundle.bundleID] = CatalogApp(
-                    bundleID: existing.bundleID,
-                    name: existing.name == existing.bundleID ? bundle.name : existing.name,
-                    version: existing.version,
-                    type: existing.type,
-                    path: existing.path,
-                    source: .direct
-                )
-            } else {
-                byID[bundle.bundleID] = CatalogApp(
-                    bundleID: bundle.bundleID,
-                    name: bundle.name,
-                    version: "",
-                    type: "Application",
-                    path: nil,
-                    source: .direct
-                )
-            }
-        }
-        apps = sorted(byID)
-    }
-
-    private func mergePaths(_ records: [ContainerRecord]) {
-        var byID: [String: CatalogApp] = [:]
-        for app in apps { byID[app.bundleID] = app }
-        for record in records {
-            merge(record, into: &byID)
-        }
-        apps = sorted(byID)
-    }
-
-    private func mergeAirliftCatalog() async {
-        guard AirliftEngine.shared.hasPairing else { return }
-        // Chỉ lấy danh sách (không chờ icon) — icon tải nền theo lô ở dưới.
-        guard let catalog = try? await AirliftServices.shared.fetchAppCatalog(iconLimit: 0) else { return }
-
-        var byID: [String: CatalogApp] = [:]
-        for app in apps { byID[app.bundleID] = app }
-
-        for info in catalog.apps {
-            let existing = byID[info.bundleID]
-            byID[info.bundleID] = CatalogApp(
-                bundleID: info.bundleID,
-                name: info.name,
-                version: info.version,
-                type: info.type,
-                // `info.path` là đường dẫn bundle (.app) — container dữ liệu
-                // vẫn được resolve bằng worse_query khi mở.
-                path: existing?.path,
-                source: .airlift
-            )
-        }
-
-        apps = sorted(byID)
-        for (bundleID, data) in catalog.icons {
-            guard let image = UIImage(data: data) else { continue }
-            icons[bundleID] = image
-            persistIcon(image, for: bundleID)
-        }
-        saveCatalogCache()
-        Log.info("AppCatalog: AirLift → \(catalog.apps.count) ứng dụng", category: .airlift)
-    }
-
-    // MARK: - Quét container nền
+    // MARK: - Quét container (nền)
 
     private func startContainerScan() {
         guard !isScanningContainers else { return }
 
-        // Database iOS đã cho container của phần lớn app → không cần quét
-        // (đây là đường nhanh: bỏ hẳn quét inode).
-        let appsWithPath = apps.filter { $0.path != nil }.count
-        if appsWithPath >= 50, appsWithPath * 2 >= apps.count {
-            Log.info("AppCatalog: database đã có container (\(appsWithPath)/\(apps.count)) — bỏ quét", category: .badquery)
-            return
-        }
-
-        // Đã quét gần đây (và đúng phiên bản quét) → bỏ qua cho nhanh.
         let storedVersion = UserDefaults.standard.integer(forKey: Self.scanVersionKey)
         if storedVersion >= Self.currentScanVersion,
            let last = UserDefaults.standard.object(forKey: Self.lastScanKey) as? Date,
            Date().timeIntervalSince(last) < 3600,
            apps.contains(where: { $0.path != nil }) {
-            Log.info("AppCatalog: bỏ qua quét container (vừa quét < 1 giờ)", category: .badquery)
+            Log.info("AppCatalog: bỏ qua quét container (vừa quét < 1 giờ)", category: .worseQuery)
             return
         }
 
@@ -442,8 +199,8 @@ final class AppCatalog: ObservableObject {
         Task {
             let records = try? await Task.detached { () -> [ContainerRecord] in
                 try DirectEngine.shared.fetchApplicationsDeep(limit: 600) { scanned, total in
-                    if scanned % 10 == 0 {
-                        Log.info("AppCatalog: quét \(scanned)/\(total) container", category: .badquery)
+                    if scanned % 25 == 0 {
+                        Log.info("AppCatalog: quét \(scanned)/\(total) container", category: .worseQuery)
                     }
                 }
             }.value
@@ -451,92 +208,41 @@ final class AppCatalog: ObservableObject {
             isScanningContainers = false
 
             guard let records, !records.isEmpty else {
-                Log.info("AppCatalog: quét container không ra kết quả", category: .badquery)
+                Log.info("AppCatalog: quét container không ra kết quả", category: .worseQuery)
                 return
             }
 
-            mergePaths(records)
+            var byID: [String: CatalogApp] = [:]
+            for app in apps { byID[app.bundleID] = app }
+            for record in records { merge(record, into: &byID) }
+
+            // App hệ thống không có container: chỉ có tên gói (fsgetpath).
+            var existingNames = Set(byID.values.map(\.name))
+            var added = 0
+            for item in await Task.detached {
+                DirectEngine.shared.fetchBundleOnlyNames(limit: 200)
+            }.value {
+                guard !existingNames.contains(item.name) else { continue }
+                existingNames.insert(item.name)
+                byID["bundle:\(item.name)"] = CatalogApp(
+                    bundleID: "bundle:\(item.name)",
+                    name: item.name,
+                    version: "",
+                    type: "System",
+                    path: item.path,
+                    source: .direct
+                )
+                added += 1
+            }
+
+            apps = sorted(byID)
             saveCatalogCache()
             UserDefaults.standard.set(Date(), forKey: Self.lastScanKey)
             UserDefaults.standard.set(Self.currentScanVersion, forKey: Self.scanVersionKey)
             Log.info(
-                "AppCatalog: quét xong — \(records.count) container, tổng \(apps.count) ứng dụng",
-                category: .badquery
+                "AppCatalog: quét xong — \(records.count) container, +\(added) app hệ thống, tổng \(apps.count) ứng dụng",
+                category: .worseQuery
             )
-        }
-    }
-
-    /// Tên + icon qua lease gói (class-5) — không cần Airlift. Chạy cho các
-    /// app còn thiếu tên thật/icon, tối đa 200 app mỗi vòng.
-    private func startBundleLeaseFill() {
-        let missing = apps.filter { icons[$0.bundleID] == nil && $0.name == $0.bundleID }
-        guard !missing.isEmpty else { return }
-
-        Task {
-            var filled = 0
-            for app in missing.prefix(200) {
-                guard let bundlePath = DirectEngine.shared.bundlePath(forBundleID: app.bundleID) else { continue }
-                let infoPath = (bundlePath as NSString).appendingPathComponent("Info.plist")
-                guard let data = try? Data(contentsOf: URL(fileURLWithPath: infoPath)),
-                      let plistObject = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
-                      let plist = plistObject as? [String: Any] else { continue }
-
-                let name = (plist["CFBundleDisplayName"] as? String)
-                    ?? (plist["CFBundleName"] as? String)
-                let iconData = AppIconExtractor.bundleIcon(appPath: bundlePath, info: plist)
-
-                if let index = apps.firstIndex(where: { $0.bundleID == app.bundleID }) {
-                    let existing = apps[index]
-                    apps[index] = CatalogApp(
-                        bundleID: existing.bundleID,
-                        name: name ?? existing.name,
-                        version: existing.version,
-                        type: existing.type,
-                        path: existing.path,
-                        source: .direct
-                    )
-                }
-                if let iconData, let image = UIImage(data: iconData), icons[app.bundleID] == nil {
-                    icons[app.bundleID] = image
-                    persistIcon(image, for: app.bundleID)
-                }
-                filled += 1
-            }
-            if filled > 0 { saveCatalogCache() }
-            Log.info(
-                "AppCatalog: lease gói class-5 → \(filled)/\(min(missing.count, 200)) app có tên/icon",
-                category: .app
-            )
-        }
-    }
-
-    /// Quét gói .app — nguồn đủ app + tên thật (bundle luôn tồn tại).
-    private func startBundleScan() {
-        let storedVersion = UserDefaults.standard.integer(forKey: "bbbbbb.bundleScanVersion")
-        if storedVersion >= 1, apps.count >= 50 { return }
-        // Gói .app không cấp được token (daemon chặn) → đánh dấu để không quét
-        // lại mỗi lần mở (8 giây vô ích); "Quét lại từ đầu" sẽ xoá cờ này.
-        if UserDefaults.standard.bool(forKey: "bbbbbb.bundleScanUnsupported") { return }
-
-        Task {
-            let bundles = (try? await Task.detached { () -> [(bundleID: String, name: String, icon: Data?)] in
-                try DirectEngine.shared.fetchApplicationsFromBundles(limit: 600) { scanned, total in
-                    if scanned % 20 == 0 {
-                        Log.info("AppCatalog: quét bundle \(scanned)/\(total)", category: .badquery)
-                    }
-                }
-            }.value) ?? []
-
-            guard !bundles.isEmpty else {
-                UserDefaults.standard.set(true, forKey: "bbbbbb.bundleScanUnsupported")
-                Log.info("AppCatalog: gói .app không cấp token — tắt quét bundle", category: .badquery)
-                return
-            }
-
-            mergeBundles(bundles)
-            saveCatalogCache()
-            UserDefaults.standard.set(1, forKey: "bbbbbb.bundleScanVersion")
-            Log.info("AppCatalog: bundle scan → \(bundles.count) app, tổng \(apps.count) ứng dụng", category: .badquery)
         }
     }
 
@@ -555,14 +261,12 @@ final class AppCatalog: ObservableObject {
         for file in files where file.pathExtension == "png" {
             let bundleID = file.deletingPathExtension().lastPathComponent
             guard icons[bundleID] == nil else { continue }
-            guard let data = try? Data(contentsOf: file), let image = UIImage(data: data) else {
-                continue
-            }
+            guard let data = try? Data(contentsOf: file), let image = UIImage(data: data) else { continue }
             icons[bundleID] = image
         }
     }
 
-    // MARK: - Catalog cache (instant relaunch)
+    // MARK: - Catalog cache (mở lại là có ngay)
 
     private func saveCatalogCache() {
         let payload = CatalogCachePayload(apps: apps, savedAt: Date())

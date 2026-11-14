@@ -1,36 +1,26 @@
-# Third-party notices
+# NOTICE
 
-bbbbbb builds on research and open-source work from the iOS sideloading community.
-The components below are used or adapted; upstream license notices are preserved
-alongside the reused material.
+## bbbbbb — file manager cho iOS dựa trên kỹ thuật `worse_query`
 
-## Code adapted or integrated
+Kỹ thuật truy cập container mà app này dùng là **`worse_query`** của
+[Taj C (forcequitOS)](https://github.com/forcequitOS/worse_query) — bản quyền
+**GPL-3.0-or-later**. App này là một **bản cài đặt độc lập** của cùng kỹ thuật
+đó (tự viết lại từ đầu, không sao chép mã nguồn của tác giả).
 
-- **StosVPN / LocalDevVPN** — https://github.com/SideStore/StosVPN,
-  https://github.com/seomin0610/LocalDevVPN — MIT License, © 2025 SideStore Team.
-  The embedded loopback tunnel (`Tunnel/`, `Shared/TunnelConstants.swift`) follows
-  their packet-tunnel approach: a 10.7.0.x interface whose packet loop swaps
-  source/destination so sandboxed apps can reach on-device services.
-- **AirCard-iOS** — https://github.com/Mak5er/AirCard-iOS — MIT License,
-  © 2026 Johnny Franks. The on-device pairing flow (Bonjour
-  `_remotepairing-pairable-host._tcp` + PIN) and the AirliftFFI/AirTraffic
-  surface are adopted for the AirLift access method.
-- **idevice** — https://github.com/jkcoxson/idevice — MIT License,
-  © 2026 Jackson Coxson. Device transport, Remote Pairing, RSD and FileService
-  used by the AirLift access method.
-- **KAMUI (kamui-escape)** — https://github.com/murk-sus/kamui-escape —
-  MIT License. The multi-strategy container-query escape engine follows its
-  class-13 / class-7 / class-12 / class-2 technique set.
+Phần liệt kê thư mục bằng `fsgetpath` (dò inode để tìm đường dẫn khi không
+được phép `readdir`) lấy cảm hứng từ dự án
+[KAMUI / kamui-escape](https://github.com/murk-sus/kamui-escape) của murk-sus
+(MIT) — cũng được viết lại độc lập.
 
-- **ZIPFoundation** — https://github.com/weichsel/ZIPFoundation — MIT License,
-  © Thomas Zoechling. ZIP create/extract/list used by the Archive manager.
+### Điều kiện bắt buộc
+`worse_query` cần **một App Group entitlement** trong profile ký: kỹ thuật hoán
+đổi `Library/Caches` của app group để containermanagerd cấp token cho đường dẫn
+đích. Tên app group không quan trọng — app dùng bất kỳ group nào profile cấp.
 
-## Techniques studied (no code copied)
+### Phần còn lại của app
+Toàn bộ phần còn lại (giao diện, quét container, trình duyệt tệp, bộ xem
+plist/hex/SQLite, dọn temp, nhận diện container bằng xattr) là **tự viết** cho
+dự án này.
 
-- **forcequitOS/worse_query + bad_query** — GPLv3. Container-access research.
-- **YangJiiii/3105** — GPLv3. MHA-C2 container discovery workflow, AirLift
-  feature mapping, and Cleaner UX are studied and re-implemented.
-- **jailbreakdotparty/Erosion** — customization toolbox UX reference.
-- **0xjohnnydev/airlift + related PoCs** — AirTraffic/ATAirlock escape research.
-
-Intended use: devices you own or are authorized to manage.
+## Giấy phép
+Xem `LICENSE` — GPL-3.0-or-later (kế thừa từ kỹ thuật gốc).

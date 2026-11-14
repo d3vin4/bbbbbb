@@ -3,16 +3,12 @@ import SwiftUI
 /// Cài đặt chia theo nhóm rõ ràng: Truy cập · Dữ liệu · Giao diện ·
 /// Trình duyệt tệp · Về app.
 struct SettingsView: View {
-    @AppStorage(AccessMethod.storageKey) private var accessMethod: AccessMethod = .direct
     @AppStorage(AppLanguage.storageKey) private var language: AppLanguage = .english
     @AppStorage("bbbbbb.files.viewMode") private var filesViewMode = "list"
     @AppStorage(FileBrowserModel.showHiddenKey) private var filesShowHidden = false
     @AppStorage(FileBrowserModel.showExtensionsKey) private var filesShowExtensions = false
     @AppStorage(FileBrowserModel.sortKeyKey) private var filesSortKeyRaw = FileSortKey.name.rawValue
     @AppStorage(FileBrowserModel.sortAscendingKey) private var filesSortAscending = true
-
-    @ObservedObject private var tunnel = TunnelManager.shared
-    @ObservedObject private var pairing = PairingController.shared
 
     @State private var isShowingSetup = false
 
@@ -27,10 +23,7 @@ struct SettingsView: View {
         .navigationTitle(L.t("Cài đặt", "Settings"))
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $isShowingSetup) {
-            OnboardingView(isReview: true)
-        }
-        .task {
-            await tunnel.load()
+            OnboardingView()
         }
     }
 
@@ -38,30 +31,10 @@ struct SettingsView: View {
 
     private var accessSection: some View {
         Section {
-            Picker(L.t("Nguồn danh sách app", "App list source"), selection: $accessMethod) {
-                ForEach(AccessMethod.allCases) { method in
-                    Text(method.title).tag(method)
-                }
-            }
-            .pickerStyle(.menu)
-
-            LabeledContent(L.t("Container engine", "Container engine"), value: BQCore.routeSummary())
-
-            if accessMethod == .airlift {
-                LabeledContent(L.t("Pairing", "Pairing")) {
-                    Text(pairing.hasPairingFile ? L.t("Đã pair", "Paired") : L.t("Chưa pair", "Not paired"))
-                        .foregroundStyle(.secondary)
-                }
-                LabeledContent(L.t("Tunnel", "Tunnel")) {
-                    Text(tunnel.statusDescription)
-                        .foregroundStyle(tunnel.isConnected ? Color.green : Color.secondary)
-                }
-                Button {
-                    isShowingSetup = true
-                } label: {
-                    Label(L.t("Hướng dẫn thiết lập", "Setup guide"), systemImage: "list.number")
-                }
-            }
+            LabeledContent(L.t("Container engine", "Container engine"), value: BQCore.routeDescription())
+            LabeledContent(L.t("App Group", "App Group"), value: BQCore.appGroupIdentifiers().isEmpty
+                ? L.t("Chưa có — cần ký kèm", "Missing — required for signing")
+                : L.t("Đã có", "Present"))
         } header: {
             Label(L.t("Truy cập", "Access"), systemImage: "lock.shield")
         }
@@ -111,7 +84,6 @@ struct SettingsView: View {
             Button(role: .destructive) {
                 // Quét lại từ đầu: xoá index database + mốc quét để lần sau
                 // dò lại đủ (dùng khi danh sách thiếu app).
-                LaunchServicesIndex.shared.invalidate()
                 UserDefaults.standard.removeObject(forKey: "bbbbbb.containerScanVersion")
                 UserDefaults.standard.removeObject(forKey: "bbbbbb.bundleScanVersion")
                 UserDefaults.standard.removeObject(forKey: "bbbbbb.bundleScanUnsupported")

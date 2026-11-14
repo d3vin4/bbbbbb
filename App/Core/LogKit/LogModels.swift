@@ -29,10 +29,7 @@ enum LogLevel: String, Codable, CaseIterable, Identifiable, Sendable {
 
 enum LogCategory: String, Codable, CaseIterable, Identifiable, Sendable {
     case app
-    case airlift
-    case badquery
-    case vpn
-    case pairing
+    case worseQuery
     case fileManager
     case archive
     case viewer
@@ -44,10 +41,7 @@ enum LogCategory: String, Codable, CaseIterable, Identifiable, Sendable {
     var label: String {
         switch self {
         case .app: return "App"
-        case .airlift: return "Airlift"
-        case .badquery: return "BadQuery"
-        case .vpn: return "VPN"
-        case .pairing: return "Pairing"
+        case .worseQuery: return "worse_query"
         case .fileManager: return "File Manager"
         case .archive: return "Archive"
         case .viewer: return "Viewer"
@@ -59,10 +53,7 @@ enum LogCategory: String, Codable, CaseIterable, Identifiable, Sendable {
     var symbolName: String {
         switch self {
         case .app: return "app"
-        case .airlift: return "airplane"
-        case .badquery: return "internaldrive"
-        case .vpn: return "shield.lefthalf.filled"
-        case .pairing: return "link"
+        case .worseQuery: return "internaldrive"
         case .fileManager: return "folder"
         case .archive: return "archivebox"
         case .viewer: return "doc.text.magnifyingglass"

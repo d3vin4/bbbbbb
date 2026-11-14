@@ -12,9 +12,8 @@ settings:
     SUPPORTS_MACCATALYST: false
     MARKETING_VERSION: "1.0.0"
     CURRENT_PROJECT_VERSION: "1"
-    # Mặc định = identity MHA. Đặt BBBBBB_BUNDLE_ID=com.d3vin4.bbbbbb
-    # khi build để cài song song với app khác đang giữ bundle MHA.
-    BBBBBB_BUNDLE_ID: com.apple.mobile.MobileHouseArrest
+    # Bundle id tùy ý — kỹ thuật worse_query không cần identity MHA nào cả.
+    BBBBBB_BUNDLE_ID: com.d3vin4.bbbbbb
 packages:
   ZIPFoundation:
     url: https://github.com/weichsel/ZIPFoundation.git
@@ -25,68 +24,25 @@ targets:
     platform: iOS
     sources:
       - path: App
-      - path: Shared
       - path: BadQuery
-      - path: AirliftExt
     settings:
       base:
-        # Identity required by the MHA-C2 direct container workflow
-        # (same approach as FilzaSlop). The Direct access method
-        # degrades to the fallback strategies without it.
         PRODUCT_BUNDLE_IDENTIFIER: $(BBBBBB_BUNDLE_ID)
         PRODUCT_NAME: bbbbbb
         INFOPLIST_FILE: App/Info.plist
         SWIFT_OBJC_BRIDGING_HEADER: App/bbbbbb-Bridging-Header.h
         HEADER_SEARCH_PATHS:
           - $(SRCROOT)/BadQuery
-          - $(SRCROOT)/AirliftExt
         CODE_SIGN_ENTITLEMENTS: Entitlements/bbbbbb.entitlements
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        # AirliftFFI (Rust static lib, MIT) pulls C++ symbols from aws-lc.
-        OTHER_LDFLAGS: "-lc++"
     dependencies:
-      - framework: Vendor/AirliftFFI.xcframework
-        embed: false
       - package: ZIPFoundation
-      - target: PairingActivity
-        embed: true
-      - target: PacketTunnel
-        embed: true
-  PairingActivity:
-    type: app-extension
-    platform: iOS
-    sources:
-      - path: Widgets
-      - path: Shared
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: $(BBBBBB_BUNDLE_ID).PairingActivity
-        PRODUCT_NAME: PairingActivity
-        INFOPLIST_FILE: Widgets/Info.plist
-        APPLICATION_EXTENSION_API_ONLY: true
-        SKIP_INSTALL: true
-  PacketTunnel:
-    type: app-extension
-    platform: iOS
-    sources:
-      - path: Tunnel
-      - path: Shared
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: $(BBBBBB_BUNDLE_ID).PacketTunnel
-        PRODUCT_NAME: PacketTunnel
-        INFOPLIST_FILE: Tunnel/Info.plist
-        APPLICATION_EXTENSION_API_ONLY: true
-        SKIP_INSTALL: true
-        CODE_SIGN_ENTITLEMENTS: Entitlements/PacketTunnel.entitlements
 schemes:
   bbbbbb:
     build:
       targets:
         bbbbbb: all
-        PairingActivity: all
-        PacketTunnel: all
     run:
       config: Debug
     archive:

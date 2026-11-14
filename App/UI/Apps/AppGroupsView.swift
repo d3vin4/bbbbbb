@@ -64,15 +64,15 @@ struct AppGroupsView: View {
         defer { isLoading = false }
 
         let report = DirectEngine.shared.capabilityReport()
-        guard report.mcmAvailable else {
-            errorMessage = "Cần engine Trực tiếp: MCM \(report.mcmAvailable ? "OK" : "thiếu") · identity \(report.mhaIdentity ? "MHA đúng" : "chưa phải MHA (vẫn thử)")."
+        guard report.hasAppGroup else {
+            errorMessage = "Cần App Group entitlement để dùng kỹ thuật worse_query."
             return
         }
         do {
             groups = try await Task.detached {
                 try DirectEngine.shared.fetchAppGroups(limit: 600)
             }.value
-            Log.info("AppGroups: tìm thấy \(groups.count) container", category: .badquery)
+            Log.info("AppGroups: tìm thấy \(groups.count) container", category: .worseQuery)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -160,7 +160,7 @@ struct AppGroupDetailView: View {
             }.value
             activatedPath = result.0
             entryCount = result.1
-            Log.info("Direct: kích hoạt App Group \(group.identifier) → \(result.0) (\(result.1) mục)", category: .badquery)
+            Log.info("Direct: kích hoạt App Group \(group.identifier) → \(result.0) (\(result.1) mục)", category: .worseQuery)
         } catch {
             errorMessage = error.localizedDescription
         }
