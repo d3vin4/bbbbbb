@@ -21,6 +21,7 @@
 #import <sys/stat.h>
 #import <sys/xattr.h>
 #import <unistd.h>
+#import <os/object.h>
 #import <xpc/xpc.h>
 
 // ---------------------------------------------------------------- symbols ---
