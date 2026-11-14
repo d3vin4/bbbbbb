@@ -106,8 +106,9 @@ final class AppCatalog: ObservableObject {
 
         state = .loading
 
-        // Danh sách + tên + icon từ LaunchServices (tức thì).
-        let installed = await Task.detached { InstalledAppsProbe.installedApps() }.value
+        // Danh sách + tên + icon từ LaunchServices — **phải gọi trên main thread**
+        // (API private này từ chối khi chạy ngoài main → trả 0).
+        let installed = InstalledAppsProbe.installedApps()
         Log.info("AppCatalog: LaunchServices → \(installed.count) ứng dụng", category: .app)
 
         if !installed.isEmpty {
