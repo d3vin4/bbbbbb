@@ -219,9 +219,10 @@ final class AppCatalog: ObservableObject {
             // App hệ thống không có container: chỉ có tên gói (fsgetpath).
             var existingNames = Set(byID.values.map(\.name))
             var added = 0
-            for item in await Task.detached {
+            let bundleNames = await Task.detached {
                 DirectEngine.shared.fetchBundleOnlyNames(limit: 200)
-            }.value {
+            }.value
+            for item in bundleNames {
                 guard !existingNames.contains(item.name) else { continue }
                 existingNames.insert(item.name)
                 byID["bundle:\(item.name)"] = CatalogApp(
