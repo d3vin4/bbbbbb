@@ -54,7 +54,7 @@ final class DirectEngine {
     ) throws -> [ContainerRecord] {
         let candidates = containerCandidates(
             in: "/var/mobile/Containers/Data/Application",
-            maxInode: 12_000_000
+            maxInode: 6_000_000
         )
         var records: [ContainerRecord] = []
         var scanned = 0
@@ -242,18 +242,29 @@ final class DirectEngine {
             }
         }
 
-        var scannedUpTo: UInt64 = 1
-        let scanned = BQCore.listDirectoryEntries(
-            directory,
-            fromInode: 1,
-            maxInode: maxInode,
-            scannedUpTo: &scannedUpTo
-        )
-        Log.info(
-            "Direct: fsgetpath → \(scanned.count) mục trong \(directory) (inode 1…\(scannedUpTo))",
-            category: .worseQuery
-        )
-        return scanned
+        // Quét theo khối 500k inode: log tiến trình ngay từ khối đầu (trước đây
+        // log chỉ in sau khi quét hết ~12M inode nên nhìn như không chạy).
+        var collected: [String] = []
+        let chunk: UInt64 = 500_000
+        let label = (directory as NSString).lastPathComponent
+        var start: UInt64 = 1
+        while start <= maxInode {
+            let end = min(start + chunk - 1, maxInode)
+            var scannedUpTo: UInt64 = start
+            let part = BQCore.listDirectoryEntries(
+                directory,
+                fromInode: start,
+                maxInode: end,
+                scannedUpTo: &scannedUpTo
+            )
+            collected.append(contentsOf: part)
+            Log.info(
+                "Direct: fsgetpath \(label) inode \(start)…\(end) → \(part.count) mục (tổng \(collected.count))",
+                category: .worseQuery
+            )
+            start = end + 1
+        }
+        return collected
     }
 
     /// Định danh container (xattr, sau đó mới tới metadata plist).

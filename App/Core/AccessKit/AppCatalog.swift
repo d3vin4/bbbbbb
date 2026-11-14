@@ -109,7 +109,12 @@ final class AppCatalog: ObservableObject {
         // Danh sách + tên + icon từ LaunchServices — **phải gọi trên main thread**
         // (API private này từ chối khi chạy ngoài main → trả 0).
         let installed = InstalledAppsProbe.installedApps()
-        Log.info("AppCatalog: LaunchServices → \(installed.count) ứng dụng", category: .app)
+        if installed.isEmpty {
+            // Không phải lỗi: hệ thống chỉ trả tên/icon cho app mang identity MHA.
+            Log.info("AppCatalog: tên/icon hệ thống không khả dụng — danh sách lấy từ quét container", category: .app)
+        } else {
+            Log.info("AppCatalog: LaunchServices → \(installed.count) ứng dụng", category: .app)
+        }
 
         if !installed.isEmpty {
             rebuild(installed: installed, records: [])
