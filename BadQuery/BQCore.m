@@ -45,7 +45,7 @@ typedef struct {
     bq_free_fn freeQuery;
     bq_copy_token_fn copyToken;
     bq_consume_fn consume;
-    bq_release_fn release;
+    bq_release_fn releaseToken;
 } BQSymbols;
 
 static BQSymbols gSymbols;
@@ -67,7 +67,7 @@ static void BQLoadSymbols(void) {
     gSymbols.freeQuery = (bq_free_fn)dlsym(manager, "container_query_free");
     gSymbols.copyToken = (bq_copy_token_fn)dlsym(manager, "container_copy_sandbox_token");
     gSymbols.consume = (bq_consume_fn)dlsym(RTLD_DEFAULT, "sandbox_extension_consume");
-    gSymbols.release = (bq_release_fn)dlsym(RTLD_DEFAULT, "sandbox_extension_release");
+    gSymbols.releaseToken = (bq_release_fn)dlsym(RTLD_DEFAULT, "sandbox_extension_release");
 }
 
 static BOOL BQSymbolsReady(void) {
@@ -219,7 +219,7 @@ static int64_t BQQueryClass7(NSString *groupID, uint64_t flags, NSString **outPa
     gSymbols.setFlags(query, flags);
 
     void *result = gSymbols.getSingle(query);
-    if (identifier) xpc_release(identifier);
+    if (identifier) OS_xpc_release(identifier);
 
     int64_t handle = -3;
     if (result) {
@@ -273,8 +273,8 @@ static int64_t BQGrantClass7(NSString *target) {
                 handle = candidate;
                 break;
             }
-            if (candidate >= 0 && gSymbols.release) {
-                gSymbols.release(candidate);
+            if (candidate >= 0 && gSymbols.releaseToken) {
+                gSymbols.releaseToken(candidate);
             }
         }
 
@@ -296,8 +296,8 @@ static void BQEvictOldestHandle(void) {
     NSString *oldest = gGrantOrder.firstObject;
     [gGrantOrder removeObjectAtIndex:0];
     NSNumber *handle = gGrantCache[oldest];
-    if (handle && gSymbols.release) {
-        gSymbols.release(handle.longLongValue);
+    if (handle && gSymbols.releaseToken) {
+        gSymbols.releaseToken(handle.longLongValue);
     }
     [gGrantCache removeObjectForKey:oldest];
 }
@@ -312,6 +312,8 @@ static void BQGrantUnlock(void) {
 }
 
 // --------------------------------------------------------------- public API ---
+
+@implementation BQCore
 
 + (BOOL)isAvailable {
     BQLoadSymbols();
@@ -414,8 +416,8 @@ static void BQGrantUnlock(void) {
     BQGrantLock();
     for (NSString *key in [gGrantCache.allKeys copy]) {
         NSNumber *handle = gGrantCache[key];
-        if (handle && gSymbols.release) {
-            gSymbols.release(handle.longLongValue);
+        if (handle && gSymbols.releaseToken) {
+            gSymbols.releaseToken(handle.longLongValue);
         }
     }
     [gGrantCache removeAllObjects];
