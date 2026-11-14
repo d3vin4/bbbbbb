@@ -18,7 +18,6 @@ struct SettingsView: View {
             dataSection
             interfaceSection
             browserSection
-            aboutSection
         }
         .navigationTitle(L.t("Cài đặt", "Settings"))
         .navigationBarTitleDisplayMode(.inline)
@@ -74,6 +73,24 @@ struct SettingsView: View {
             }
             NavigationLink {
                 FileBrowserView(root: ContainerRecord(
+                    identifier: "Extension Data",
+                    kind: .application,
+                    path: "/private/var/mobile/Containers/Data/PluginKitPlugin"
+                ))
+            } label: {
+                Label("Extension Data", systemImage: "puzzlepiece.extension")
+            }
+            NavigationLink {
+                FileBrowserView(root: ContainerRecord(
+                    identifier: "Daemon Data",
+                    kind: .application,
+                    path: "/private/var/mobile/Containers/Data/InternalDaemon"
+                ))
+            } label: {
+                Label("Daemon Data", systemImage: "gearshape.2")
+            }
+            NavigationLink {
+                FileBrowserView(root: ContainerRecord(
                     identifier: "bbbbbb",
                     kind: .application,
                     path: NSHomeDirectory()
@@ -108,6 +125,8 @@ struct SettingsView: View {
                 }
             }
             .pickerStyle(.menu)
+            Toggle(L.t("Âm thanh khi bấm", "Tap sounds"), isOn: $soundEnabled)
+                .onChange(of: soundEnabled) { _, _ in SoundKit.tap() }
         } header: {
             Label(L.t("Giao diện", "Interface"), systemImage: "globe")
         }
@@ -138,14 +157,8 @@ struct SettingsView: View {
 
     // MARK: - Về app
 
-    private var aboutSection: some View {
-        Section {
-            LabeledContent(L.t("Ứng dụng", "App"), value: Bundle.main.appVersion)
-            LabeledContent("Bundle ID", value: Bundle.main.bundleIdentifier ?? "—")
-        } header: {
-            Label(L.t("Về bbbbbb", "About"), systemImage: "info.circle")
-        }
-    }
+    /// Bật/tắt âm thanh phản hồi khi bấm nút.
+    @AppStorage(SoundKit.enabledKey) private var soundEnabled = true
 }
 
 private extension Bundle {

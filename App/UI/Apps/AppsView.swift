@@ -18,6 +18,7 @@ struct AppsView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
+                        SoundKit.tap()
                         Task { await catalog.reload() }
                     } label: {
                         Image(systemName: "arrow.clockwise")
@@ -151,10 +152,10 @@ private struct AppRow: View {
                     .frame(width: 40, height: 40)
                     .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
             } else {
-                Image(systemName: "app.fill")
-                    .font(.system(size: 32))
+                // Không có icon thật (app không mang identity MHA) → icon chữ cái.
+                Image(uiImage: AppIconExtractor.letterTile(bundleID: app.bundleID, name: app.name))
+                    .resizable()
                     .frame(width: 40, height: 40)
-                    .foregroundStyle(.secondary)
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(app.name)
