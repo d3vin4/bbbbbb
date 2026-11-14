@@ -168,7 +168,7 @@ final class DirectEngine {
             includingPropertiesForKeys: nil,
             options: []
         ) {
-            return entries
+            return entries.map(\.lastPathComponent)
         }
         return BQCore.listDirectoryEntries(path, maxInode: 2_000_000)
     }
