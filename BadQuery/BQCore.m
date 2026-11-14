@@ -206,6 +206,20 @@ static void BQRestorePath(NSString *path, NSString *backup) {
 
 // ------------------------------------------------------------ grant (wq) ---
 
+/// Object xpc cho group id — tạo một lần rồi dùng lại (ARC không cho
+/// release thủ công, nên giữ suốt tiến trình).
+static xpc_object_t gGroupObject = NULL;
+static char gGroupObjectID[512] = {0};
+
+static xpc_object_t BQGroupObject(const char *groupID) {
+    if (gGroupObject && strcmp(gGroupObjectID, groupID) == 0) {
+        return gGroupObject;
+    }
+    gGroupObject = xpc_string_create(groupID);
+    strncpy(gGroupObjectID, groupID, sizeof(gGroupObjectID) - 1);
+    return gGroupObject;
+}
+
 /// Xin sandbox token cho class 7 (app group) với `groupID`.
 static int64_t BQQueryClass7(NSString *groupID, uint64_t flags, NSString **outPath) {
     if (!BQSymbolsReady()) return -1;
@@ -214,13 +228,12 @@ static int64_t BQQueryClass7(NSString *groupID, uint64_t flags, NSString **outPa
     if (!query) return -2;
 
     gSymbols.setClass(query, 7);
-    xpc_object_t identifier = xpc_string_create(groupID.UTF8String);
+    xpc_object_t identifier = BQGroupObject(groupID.UTF8String);
     gSymbols.setGroupIds(query, identifier);
     gSymbols.setPart(query, 3);   // Library/Caches
     gSymbols.setFlags(query, flags);
 
     void *result = gSymbols.getSingle(query);
-    if (identifier) OS_xpc_release(identifier);
 
     int64_t handle = -3;
     if (result) {
