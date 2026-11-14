@@ -35,6 +35,8 @@ typedef void (*bq_free_fn)(void *);
 typedef void *(*bq_copy_token_fn)(void *);
 typedef int64_t (*bq_consume_fn)(void *);
 typedef int64_t (*bq_release_fn)(int64_t);
+typedef bool (*bq_iterate_fn)(void *, bool (^)(void *));
+typedef const char *(*bq_get_identifier_fn)(void *);
 
 typedef struct {
     bq_create_fn create;
@@ -47,6 +49,8 @@ typedef struct {
     bq_copy_token_fn copyToken;
     bq_consume_fn consume;
     bq_release_fn releaseToken;
+    bq_iterate_fn iterate;
+    bq_get_identifier_fn getIdentifier;
 } BQSymbols;
 
 static BQSymbols gSymbols;
@@ -69,6 +73,8 @@ static void BQLoadSymbols(void) {
     gSymbols.copyToken = (bq_copy_token_fn)dlsym(manager, "container_copy_sandbox_token");
     gSymbols.consume = (bq_consume_fn)dlsym(RTLD_DEFAULT, "sandbox_extension_consume");
     gSymbols.releaseToken = (bq_release_fn)dlsym(RTLD_DEFAULT, "sandbox_extension_release");
+    gSymbols.iterate = (bq_iterate_fn)dlsym(manager, "container_query_iterate_results_sync");
+    gSymbols.getIdentifier = (bq_get_identifier_fn)dlsym(manager, "container_object_get_identifier");
 }
 
 static BOOL BQSymbolsReady(void) {
@@ -468,6 +474,58 @@ static void BQGrantUnlock(void) {
         }
     }
     return nil;
+}
+
+// ------------------------------------------------------------------ probe ---
+
+/// Đếm định danh mà một tổ hợp (class, part, flags) liệt kê được.
+static NSUInteger BQProbeCount(uint64_t cls, uint64_t part, uint64_t flags) {
+    if (!BQSymbolsReady()) return 0;
+    void *query = gSymbols.create();
+    if (!query) return 0;
+
+    gSymbols.setClass(query, cls);
+    gSymbols.setPart(query, part);
+    gSymbols.setFlags(query, flags);
+
+    __block NSUInteger count = 0;
+    NSMutableSet<NSString *> *identifiers = [NSMutableSet set];
+    if (gSymbols.getSingle) gSymbols.getSingle(query);
+    if (gSymbols.iterate && gSymbols.getIdentifier) {
+        gSymbols.iterate(query, ^bool(void *object) {
+            const char *raw = object ? gSymbols.getIdentifier(object) : NULL;
+            if (raw) {
+                NSString *identifier = [NSString stringWithUTF8String:raw];
+                if (identifier.length) [identifiers addObject:identifier];
+            }
+            return identifiers.count < 5000;
+        });
+    }
+    count = identifiers.count;
+    gSymbols.freeQuery(query);
+    return count;
+}
+
++ (NSArray<NSString *> *)probeQueries {
+    NSMutableArray<NSString *> *lines = [NSMutableArray array];
+    const uint64_t classes[] = { 0, 1, 2, 5, 7, 8, 10, 11, 12, 13, 15 };
+    const uint64_t parts[] = { 0, 3 };
+    const uint64_t flags[] = { 0x8000000000ULL, 0x0800000000ULL, 0x100000000ULL, 0 };
+
+    for (size_t c = 0; c < sizeof(classes) / sizeof(classes[0]); c++) {
+        for (size_t p = 0; p < sizeof(parts) / sizeof(parts[0]); p++) {
+            for (size_t f = 0; f < sizeof(flags) / sizeof(flags[0]); f++) {
+                NSUInteger count = BQProbeCount(classes[c], parts[p], flags[f]);
+                NSString *line = [NSString stringWithFormat:
+                                  @"class %llu · part %llu · flags 0x%llx → %lu",
+                                  (unsigned long long)classes[c], (unsigned long long)parts[p],
+                                  (unsigned long long)flags[f], (unsigned long)count];
+                [lines addObject:line];
+                if (count > 0) NSLog(@"[probe] %@", line);
+            }
+        }
+    }
+    return lines;
 }
 
 // ------------------------------------------------------- fsgetpath listing ---

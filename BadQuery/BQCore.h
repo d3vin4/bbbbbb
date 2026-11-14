@@ -44,6 +44,10 @@ NS_ASSUME_NONNULL_BEGIN
 /// Định danh (bundle id / group id) của container tại `path`.
 + (nullable NSString *)containerIdentifierAtPath:(NSString *)path;
 
+/// Dò tổ hợp query mạnh nhất trên máy này: quét class × part × flags và trả
+/// về bảng kết quả (số định danh liệt kê được) để chọn đường tốt nhất.
++ (NSArray<NSString *> *)probeQueries;
+
 /// Liệt kê thẻ con của `path` bằng fsgetpath.
 + (NSArray<NSString *> *)listDirectoryEntries:(NSString *)path maxInode:(uint64_t)maxInode;
 

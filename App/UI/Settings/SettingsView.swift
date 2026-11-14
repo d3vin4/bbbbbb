@@ -34,6 +34,21 @@ struct SettingsView: View {
             LabeledContent(L.t("App Group", "App Group"), value: BQCore.appGroupIdentifiers().isEmpty
                 ? L.t("Chưa có — cần ký kèm", "Missing — required for signing")
                 : L.t("Đã có", "Present"))
+            Button {
+                SoundKit.tap()
+                let lines = BQCore.probeQueries()
+                var winners = 0
+                for line in lines where !line.contains("→ 0") {
+                    Log.info("[probe] \(line)", category: .worseQuery)
+                    winners += 1
+                }
+                Log.info(
+                    "[probe] xong: \(lines.count) tổ hợp, \(winners) tổ hợp có kết quả",
+                    category: .worseQuery
+                )
+            } label: {
+                Label(L.t("Dò query (probe)", "Probe queries"), systemImage: "waveform.path.ecg")
+            }
         } header: {
             Label(L.t("Truy cập", "Access"), systemImage: "lock.shield")
         }
