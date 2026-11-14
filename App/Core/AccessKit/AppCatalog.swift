@@ -207,6 +207,19 @@ final class AppCatalog: ObservableObject {
         scanLabel = L.t("Đang dò container…", "Scanning containers…")
 
         Task {
+            // Giữ app sống trong lúc quét để iOS không treo tiến trình giữa
+            // đường (trước đây rời màn là quét đứng im).
+            let backgroundTask = await MainActor.run {
+                UIApplication.shared.beginBackgroundTask(withName: "bbbbbb.scan")
+            }
+            defer {
+                Task { @MainActor in
+                    if backgroundTask != .invalid {
+                        UIApplication.shared.endBackgroundTask(backgroundTask)
+                    }
+                }
+            }
+
             let records = try? await Task.detached { () -> [ContainerRecord] in
                 try DirectEngine.shared.fetchApplicationsDeep(limit: 600) { scanned, total in
                     if scanned % 25 == 0 {

@@ -243,7 +243,10 @@ final class DirectEngine {
         maxInode: UInt64,
         onChunk: ((Int, Int) -> Void)? = nil
     ) -> [String] {
-        if BQCore.grant(forPath: directory) >= 0 {
+        // Thư mục cha của container DỮ LIỆU APP không cấp token trên 27.x —
+        // gọi vào chỉ tốn thời gian chờ daemon (chỗ "kẹt ở 2%"). Chỉ thử với
+        // AppGroup, nơi đường này thật sự có tác dụng.
+        if directory.contains("Shared/AppGroup"), BQCore.grant(forPath: directory) >= 0 {
             if let entries = try? FileManager.default.contentsOfDirectory(atPath: directory),
                !entries.isEmpty {
                 let paths = entries
